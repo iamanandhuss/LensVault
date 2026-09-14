@@ -17,7 +17,8 @@ const LoginPage = () => {
     
     try {
       // In production use an env variable for base URL
-      const response = await axios.post('http://localhost:5000/api/auth/login', { email, password }, { withCredentials: true });
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const response = await axios.post(`${API_URL}/api/auth/login`, { email, password }, { withCredentials: true });
       if (response.data) {
         navigate('/dashboard');
       }
