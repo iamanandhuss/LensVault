@@ -82,7 +82,7 @@ export const getGalleryData = async (req: Request, res: Response): Promise<void>
     }
 
     // Only fetch active photos
-    const filter = { galleryId: gallery._id, status: 'active' };
+    const filter: any = { galleryId: gallery._id, status: 'active' };
     
     const photos = await Photo.find(filter)
       .sort({ sortOrder: 1, createdAt: -1 })
