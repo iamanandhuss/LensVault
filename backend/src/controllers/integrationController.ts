@@ -237,9 +237,12 @@ const runGallerySyncBackground = async (user: any, galleryId: string, folderId: 
 
     // 6. Update gallery stats
     const finalPhotoCount = await Photo.countDocuments({ galleryId, status: 'active' });
+    const firstPhoto = await Photo.findOne({ galleryId, status: 'active' }).sort({ sortOrder: 1 });
+    
     await Gallery.findByIdAndUpdate(galleryId, {
       syncStatus: 'idle',
       photoCount: finalPhotoCount,
+      coverPhotoUrl: firstPhoto ? (firstPhoto.thumbnailUrl || firstPhoto.fullResUrl) : '',
       lastSyncedAt: new Date()
     });
 

@@ -15,6 +15,7 @@ interface Gallery {
   slug: string;
   clientId: Client;
   googleDriveFolderId: string;
+  coverPhotoUrl?: string;
   createdAt: string;
 }
 
@@ -266,8 +267,18 @@ const GalleriesPage = () => {
               )}
               <div className="h-40 bg-gradient-to-br from-secondary/50 to-background/50 flex items-center justify-center relative overflow-hidden">
                 <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                <Image className="h-12 w-12 text-muted-foreground/20 group-hover:scale-110 transition-transform duration-500" />
-                <div className="absolute inset-0 bg-background/60 opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center backdrop-blur-md">
+                
+                {gallery.coverPhotoUrl ? (
+                  <img 
+                    src={gallery.coverPhotoUrl} 
+                    alt={gallery.name}
+                    className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  />
+                ) : (
+                  <Image className="h-12 w-12 text-muted-foreground/20 group-hover:scale-110 transition-transform duration-500 z-10" />
+                )}
+
+                <div className="absolute inset-0 bg-background/60 opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center backdrop-blur-md z-20">
                   <a 
                     href={`/gallery/${gallery.slug}`} 
                     target="_blank" 
