@@ -18,7 +18,7 @@ export const upgradeSubscription = async (req: AuthRequest, res: Response): Prom
     // In a real production app, this is where we'd verify a Stripe/Razorpay Webhook signature
     // or create a Checkout Session. For the MVP, we will simulate a successful upgrade.
 
-    const validPlans = ['Free', 'Starter', 'Pro', 'Studio'];
+    const validPlans = ['FREE', 'STARTER', 'PRO', 'STUDIO'];
     if (!validPlans.includes(plan)) {
       res.status(400).json({ error: 'Invalid subscription plan.' });
       return;
@@ -26,13 +26,13 @@ export const upgradeSubscription = async (req: AuthRequest, res: Response): Prom
 
     const updatedUser = await User.findByIdAndUpdate(
       req.user._id, 
-      { subscriptionPlan: plan },
+      { 'subscription.plan': plan },
       { new: true }
     );
 
     res.status(200).json({ 
       message: `Successfully upgraded to ${plan}`,
-      plan: updatedUser?.subscriptionPlan 
+      plan: updatedUser?.subscription?.plan 
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to upgrade subscription' });
