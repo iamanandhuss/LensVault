@@ -316,7 +316,7 @@ const PublicGalleryPage = () => {
 
           <div className="relative max-w-[90vw] max-h-[90vh] flex items-center justify-center">
             <img 
-              src={displayedPhotos[selectedPhotoIndex].fullResUrl || displayedPhotos[selectedPhotoIndex].thumbnailUrl} 
+              src={displayedPhotos[selectedPhotoIndex].thumbnailUrl.replace(/=s\d+$/, '=s1600')} 
               alt={displayedPhotos[selectedPhotoIndex].fileName} 
               className="max-w-full max-h-[90vh] object-contain rounded-md shadow-2xl"
             />
