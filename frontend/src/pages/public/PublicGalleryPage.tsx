@@ -21,6 +21,7 @@ const PublicGalleryPage = () => {
   
   const [galleryName, setGalleryName] = useState('');
   const [galleryId, setGalleryId] = useState('');
+  const [favoritesDownloadLink, setFavoritesDownloadLink] = useState('');
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [photographerProfile, setPhotographerProfile] = useState<any>(null);
   
@@ -53,6 +54,8 @@ const PublicGalleryPage = () => {
     if (savedToken) {
       axios.defaults.headers.common['Authorization'] = `Bearer ${savedToken}`;
       fetchInitialGalleryData(savedToken);
+    } else {
+      handleAutoUnlock();
     }
   }, [slug]);
 
@@ -62,15 +65,12 @@ const PublicGalleryPage = () => {
     }
   }, [page, isAuthenticated, hasMore]);
 
-  const handleAccess = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-
+  const handleAutoUnlock = async () => {
     try {
+      setLoading(true);
       const response = await axios.post(`${API_URL}/api/public/access`, {
         slug,
-        secretKey
+        secretKey: 'not-needed' // Password check bypassed on backend
       });
 
       const token = response.data.galleryToken;
@@ -79,7 +79,7 @@ const PublicGalleryPage = () => {
       
       await fetchInitialGalleryData(token);
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Invalid secret key');
+      setError(err.response?.data?.error || 'Failed to access gallery');
       setLoading(false);
     }
   };
@@ -89,6 +89,7 @@ const PublicGalleryPage = () => {
       const response = await axios.get(`${API_URL}/api/public/gallery/${slug}?page=1&limit=60`);
       setGalleryName(response.data.gallery.name);
       setGalleryId(response.data.gallery.id);
+      setFavoritesDownloadLink(response.data.gallery.favoritesDownloadLink || '');
       setPhotos(response.data.photos);
       setHasMore(response.data.pagination.hasMore);
       setPhotographerProfile(response.data.photographerProfile);
@@ -142,51 +143,11 @@ const PublicGalleryPage = () => {
     }
   };
 
-  if (loading && !isAuthenticated) {
+  if (loading || !isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-zinc-950">
-        <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-zinc-950 p-4">
-        <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-xl p-8 shadow-2xl">
-          <div className="flex justify-center mb-6">
-            <div className="h-16 w-16 bg-zinc-800 rounded-full flex items-center justify-center">
-              <Lock className="h-8 w-8 text-zinc-400" />
-            </div>
-          </div>
-          
-          <h2 className="text-2xl font-bold text-center text-zinc-100 mb-2">Private Gallery</h2>
-          <p className="text-zinc-400 text-center mb-8 text-sm">Please enter the secret key provided by your photographer to access your photos.</p>
-
-          {error && (
-            <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-sm p-3 rounded-md mb-6 text-center">
-              {error}
-            </div>
-          )}
-
-          <form onSubmit={handleAccess} className="space-y-4">
-            <input 
-              type="text" 
-              value={secretKey}
-              onChange={e => setSecretKey(e.target.value.toUpperCase())}
-              placeholder="e.g. A7F9-K2P4"
-              className="w-full h-12 bg-zinc-950 border border-zinc-800 rounded-md px-4 text-center text-lg tracking-widest text-zinc-100 placeholder:text-zinc-700 focus:outline-none focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500 uppercase"
-              required
-            />
-            <button 
-              type="submit"
-              disabled={loading}
-              className="w-full h-12 bg-white text-black font-semibold rounded-md hover:bg-zinc-200 transition-colors flex items-center justify-center disabled:opacity-50"
-            >
-              {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Unlock Gallery'}
-            </button>
-          </form>
-        </div>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-zinc-950">
+        <Loader2 className="h-8 w-8 animate-spin text-zinc-400 mb-4" />
+        {error && <p className="text-red-400 text-sm mt-4">{error}</p>}
       </div>
     );
   }
@@ -242,6 +203,16 @@ const PublicGalleryPage = () => {
 
           {/* Client Controls */}
           <div className="flex items-center gap-4">
+            {favoritesDownloadLink && (
+              <a 
+                href={favoritesDownloadLink.startsWith('http') ? favoritesDownloadLink : `https://${favoritesDownloadLink}`}
+                target="_blank"
+                rel="noreferrer"
+                className="hidden md:flex items-center gap-2 text-sm px-5 py-2.5 rounded-full font-bold transition-all duration-300 brand-bg text-white brand-shadow hover:scale-105 hover:opacity-90"
+              >
+                Download Favorites
+              </a>
+            )}
             <button 
               onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
               className={`flex items-center gap-2 text-sm px-4 md:px-5 py-2.5 rounded-full border transition-all duration-300 ${

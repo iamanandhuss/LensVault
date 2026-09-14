@@ -23,12 +23,6 @@ export const accessGallery = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    const isMatch = await bcrypt.compare(secretKey, gallery.secretKeyHash);
-    if (!isMatch) {
-      res.status(401).json({ error: 'Invalid secret key.' });
-      return;
-    }
-
     // Generate a guest token scoped to this specific gallery
     // We use this token so the client doesn't have to keep entering the password
     const guestToken = jwt.sign(
@@ -96,7 +90,12 @@ export const getGalleryData = async (req: Request, res: Response): Promise<void>
     const total = await Photo.countDocuments(filter);
     
     res.status(200).json({
-      gallery: { id: gallery._id, name: gallery.name, photographerId: gallery.photographerId },
+      gallery: { 
+        id: gallery._id, 
+        name: gallery.name, 
+        photographerId: gallery.photographerId,
+        favoritesDownloadLink: gallery.favoritesDownloadLink
+      },
       photographerProfile,
       photos,
       pagination: {

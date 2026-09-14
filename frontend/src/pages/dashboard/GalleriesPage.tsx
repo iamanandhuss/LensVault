@@ -15,6 +15,7 @@ interface Gallery {
   slug: string;
   clientId: Client;
   googleDriveFolderId: string;
+  favoritesDownloadLink?: string;
   coverPhotoUrl?: string;
   createdAt: string;
 }
@@ -175,6 +176,16 @@ const GalleriesPage = () => {
     }
   };
 
+  const handleUpdateLink = async (galleryId: string, link: string) => {
+    try {
+      await axios.put(`${API_URL}/api/galleries/${galleryId}`, { favoritesDownloadLink: link }, { withCredentials: true });
+      alert('Download link saved!');
+      fetchData();
+    } catch (err) {
+      alert('Failed to save download link');
+    }
+  };
+
   const handleCopySecret = () => {
     if (newlyCreatedSecret) {
       navigator.clipboard.writeText(newlyCreatedSecret.key);
@@ -302,6 +313,23 @@ const GalleriesPage = () => {
                 </div>
                 <p className="text-sm text-muted-foreground mb-4">Client: {gallery.clientId?.name || 'Unknown'}</p>
                 
+                <div className="mb-4">
+                  <label className="text-xs font-semibold text-muted-foreground mb-1 block">Favorites Download Link</label>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      placeholder="Paste Google Drive link..." 
+                      defaultValue={gallery.favoritesDownloadLink || ''}
+                      onBlur={(e) => {
+                        if (e.target.value !== gallery.favoritesDownloadLink) {
+                          handleUpdateLink(gallery._id, e.target.value);
+                        }
+                      }}
+                      className="w-full h-8 text-xs px-2 rounded-md bg-background border border-border/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
+                    />
+                  </div>
+                </div>
+
                 <div className="mt-auto pt-4 border-t flex justify-between items-center">
                   <div className="flex items-center text-xs text-muted-foreground truncate max-w-[150px]" title={gallery.googleDriveFolderId}>
                     <Folder className="h-3 w-3 mr-1 flex-shrink-0" />

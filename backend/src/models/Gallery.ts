@@ -7,6 +7,7 @@ export interface IGallery extends Document {
   slug: string;
   secretKeyHash: string;
   googleDriveFolderId: string;
+  favoritesDownloadLink?: string;
   coverPhotoUrl?: string;
   isActive: boolean;
   syncStatus: 'idle' | 'syncing' | 'error';
@@ -25,6 +26,7 @@ const gallerySchema = new Schema<IGallery>(
     slug: { type: String, required: true, unique: true },
     secretKeyHash: { type: String, required: true },
     googleDriveFolderId: { type: String, required: true },
+    favoritesDownloadLink: { type: String },
     coverPhotoUrl: { type: String },
     isActive: { type: Boolean, default: true },
     syncStatus: { type: String, enum: ['idle', 'syncing', 'error'], default: 'idle' },

@@ -88,3 +88,26 @@ export const deleteGallery = async (req: AuthRequest, res: Response): Promise<vo
     res.status(500).json({ error: 'Error deleting gallery' });
   }
 };
+
+export const updateGallery = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { favoritesDownloadLink } = req.body;
+    
+    const gallery = await Gallery.findOneAndUpdate(
+      { _id: id, photographerId: req.user._id },
+      { favoritesDownloadLink },
+      { new: true }
+    );
+    
+    if (!gallery) {
+      res.status(404).json({ error: 'Gallery not found' });
+      return;
+    }
+    
+    res.status(200).json(gallery);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error updating gallery' });
+  }
+};
