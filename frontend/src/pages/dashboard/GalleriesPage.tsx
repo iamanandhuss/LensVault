@@ -318,15 +318,22 @@ const GalleriesPage = () => {
                   <div className="flex gap-2">
                     <input 
                       type="text" 
+                      id={`link-${gallery._id}`}
                       placeholder="Paste Google Drive link..." 
                       defaultValue={gallery.favoritesDownloadLink || ''}
-                      onBlur={(e) => {
-                        if (e.target.value !== gallery.favoritesDownloadLink) {
-                          handleUpdateLink(gallery._id, e.target.value);
-                        }
-                      }}
                       className="w-full h-8 text-xs px-2 rounded-md bg-background border border-border/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
                     />
+                    <button 
+                      onClick={() => {
+                        const input = document.getElementById(`link-${gallery._id}`) as HTMLInputElement;
+                        if (input && input.value !== gallery.favoritesDownloadLink) {
+                          handleUpdateLink(gallery._id, input.value);
+                        }
+                      }}
+                      className="h-8 px-3 bg-primary text-primary-foreground text-xs font-medium rounded-md hover:bg-primary/90 transition-colors shrink-0"
+                    >
+                      Save
+                    </button>
                   </div>
                 </div>
 
