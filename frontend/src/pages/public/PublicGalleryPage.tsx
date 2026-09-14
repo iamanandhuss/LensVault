@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
-import { Heart, Loader2, Lock, Image as ImageIcon } from 'lucide-react';
+import { Heart, Loader2, Lock, Image as ImageIcon, X, ChevronLeft, ChevronRight, Maximize2 } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
@@ -29,6 +29,9 @@ const PublicGalleryPage = () => {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+
+  // Lightbox state
+  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(null);
 
   const observer = useRef<IntersectionObserver | null>(null);
   const lastPhotoElementRef = useCallback((node: HTMLDivElement | null) => {
@@ -242,7 +245,8 @@ const PublicGalleryPage = () => {
                 <div 
                   key={photo._id} 
                   ref={isLastPhoto ? lastPhotoElementRef : null}
-                  className="relative group break-inside-avoid overflow-hidden rounded-2xl bg-card border border-border/20 shadow-lg hover:shadow-2xl hover:shadow-primary/10 transition-all duration-500"
+                  className="relative group break-inside-avoid overflow-hidden rounded-2xl bg-card border border-border/20 shadow-lg hover:shadow-2xl hover:shadow-primary/10 transition-all duration-500 cursor-pointer"
+                  onClick={() => setSelectedPhotoIndex(index)}
                 >
                   <img 
                     src={photo.thumbnailUrl} 
@@ -254,7 +258,10 @@ const PublicGalleryPage = () => {
                   {/* Overlay */}
                   <div className="absolute inset-0 bg-gradient-to-t from-background/90 via-background/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-6">
                     <button 
-                      onClick={() => toggleFavorite(photo._id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleFavorite(photo._id);
+                      }}
                       className="absolute top-4 right-4 p-3 bg-background/40 hover:bg-background/80 backdrop-blur-md border border-white/10 rounded-full transition-all duration-300 group/btn hover:scale-110 shadow-xl"
                     >
                       <Heart 
@@ -265,16 +272,10 @@ const PublicGalleryPage = () => {
                         }`} 
                       />
                     </button>
-                    {photo.fullResUrl && (
-                      <a 
-                        href={photo.fullResUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-sm font-semibold text-white/90 hover:text-primary transition-colors tracking-wide uppercase"
-                      >
-                        Download High-Res
-                      </a>
-                    )}
+                    
+                    <div className="text-sm font-semibold text-white/90 flex items-center gap-2">
+                      <Maximize2 className="h-4 w-4" /> View Image
+                    </div>
                   </div>
                   
                   {/* Always show heart if favorited (Mobile/Persistent) */}
@@ -295,6 +296,40 @@ const PublicGalleryPage = () => {
           </div>
         )}
       </main>
+
+      {/* Lightbox Modal */}
+      {selectedPhotoIndex !== null && displayedPhotos[selectedPhotoIndex] && (
+        <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-xl flex items-center justify-center animate-in fade-in duration-300">
+          <button 
+            onClick={() => setSelectedPhotoIndex(null)}
+            className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 text-white rounded-full backdrop-blur-md transition-colors z-50"
+          >
+            <X className="h-6 w-6" />
+          </button>
+          
+          <button 
+            onClick={() => setSelectedPhotoIndex(prev => (prev! > 0 ? prev! - 1 : displayedPhotos.length - 1))}
+            className="absolute left-4 md:left-12 p-3 bg-white/5 hover:bg-white/20 text-white rounded-full backdrop-blur-md transition-colors z-50"
+          >
+            <ChevronLeft className="h-8 w-8" />
+          </button>
+
+          <div className="relative max-w-[90vw] max-h-[90vh] flex items-center justify-center">
+            <img 
+              src={displayedPhotos[selectedPhotoIndex].fullResUrl || displayedPhotos[selectedPhotoIndex].thumbnailUrl} 
+              alt={displayedPhotos[selectedPhotoIndex].fileName} 
+              className="max-w-full max-h-[90vh] object-contain rounded-md shadow-2xl"
+            />
+          </div>
+
+          <button 
+            onClick={() => setSelectedPhotoIndex(prev => (prev! < displayedPhotos.length - 1 ? prev! + 1 : 0))}
+            className="absolute right-4 md:right-12 p-3 bg-white/5 hover:bg-white/20 text-white rounded-full backdrop-blur-md transition-colors z-50"
+          >
+            <ChevronRight className="h-8 w-8" />
+          </button>
+        </div>
+      )}
     </div>
   );
 };
