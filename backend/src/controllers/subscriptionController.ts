@@ -4,8 +4,8 @@ import { User } from '../models/User';
 
 export const getSubscriptionStatus = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const user = await User.findById(req.user._id).select('subscriptionPlan');
-    res.status(200).json({ plan: user?.subscriptionPlan });
+    const user = await User.findById(req.user._id).select('subscription.plan');
+    res.status(200).json({ plan: user?.subscription?.plan });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch subscription status' });
   }

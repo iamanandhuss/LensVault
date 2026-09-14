@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
-import { Heart, Loader2, Lock, Image as ImageIcon, X, ChevronLeft, ChevronRight, Maximize2 } from 'lucide-react';
+import { Heart, Loader2, Lock, Image as ImageIcon, X, ChevronLeft, ChevronRight, Maximize2, MapPin, Globe } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
@@ -22,6 +22,8 @@ const PublicGalleryPage = () => {
   const [galleryName, setGalleryName] = useState('');
   const [galleryId, setGalleryId] = useState('');
   const [photos, setPhotos] = useState<Photo[]>([]);
+  const [photographerProfile, setPhotographerProfile] = useState<any>(null);
+  
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
 
@@ -30,8 +32,9 @@ const PublicGalleryPage = () => {
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  // Lightbox state
+  // Modals
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(null);
+  const [showProfileModal, setShowProfileModal] = useState(false);
 
   const observer = useRef<IntersectionObserver | null>(null);
   const lastPhotoElementRef = useCallback((node: HTMLDivElement | null) => {
@@ -45,7 +48,6 @@ const PublicGalleryPage = () => {
     if (node) observer.current.observe(node);
   }, [loadingMore, hasMore]);
 
-  // Try to load token from localStorage for persistence during the session
   useEffect(() => {
     const savedToken = localStorage.getItem(`gallery_token_${slug}`);
     if (savedToken) {
@@ -54,7 +56,6 @@ const PublicGalleryPage = () => {
     }
   }, [slug]);
 
-  // Fetch more photos when page changes
   useEffect(() => {
     if (page > 1 && isAuthenticated && hasMore) {
       fetchMorePhotos();
@@ -76,8 +77,6 @@ const PublicGalleryPage = () => {
       localStorage.setItem(`gallery_token_${slug}`, token);
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       
-      setGalleryId(response.data.gallery.id);
-      
       await fetchInitialGalleryData(token);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Invalid secret key');
@@ -92,6 +91,7 @@ const PublicGalleryPage = () => {
       setGalleryId(response.data.gallery.id);
       setPhotos(response.data.photos);
       setHasMore(response.data.pagination.hasMore);
+      setPhotographerProfile(response.data.photographerProfile);
       setIsAuthenticated(true);
       
       const favResponse = await axios.get(`${API_URL}/api/favorites/${response.data.gallery.id}`, {
@@ -195,32 +195,76 @@ const PublicGalleryPage = () => {
     ? photos.filter(photo => favoriteIds.has(photo._id)) 
     : photos;
 
+  const brandColor = photographerProfile?.branding?.primaryColor || '#D4AF37';
+
   return (
     <div className="min-h-screen bg-background text-foreground font-sans relative">
+      <style>{`
+        .brand-bg { background-color: ${brandColor}; }
+        .brand-text { color: ${brandColor}; }
+        .brand-border { border-color: ${brandColor}; }
+        .brand-shadow { box-shadow: 0 4px 14px 0 ${brandColor}40; }
+        .brand-fill { fill: ${brandColor}; }
+      `}</style>
+      
       {/* Background ambient lighting */}
-      <div className="fixed top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-primary/5 blur-[150px] pointer-events-none" />
-      <div className="fixed bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-primary/5 blur-[150px] pointer-events-none" />
+      <div className="fixed top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full opacity-10 blur-[150px] pointer-events-none brand-bg" />
+      <div className="fixed bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full opacity-10 blur-[150px] pointer-events-none brand-bg" />
 
-      <header className="sticky top-0 z-40 bg-background/60 backdrop-blur-2xl border-b border-border/50 shadow-sm transition-all duration-300">
+      <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-2xl border-b border-border/50 shadow-sm transition-all duration-300">
         <div className="max-w-7xl mx-auto px-4 md:px-6 h-20 flex items-center justify-between">
-          <h1 className="font-bold text-xl md:text-2xl tracking-tight text-foreground">{galleryName}</h1>
+          
+          {/* Photographer Identity */}
+          <div 
+            className="flex items-center gap-4 cursor-pointer hover:opacity-80 transition-opacity"
+            onClick={() => setShowProfileModal(true)}
+          >
+            {photographerProfile?.logo ? (
+              <img src={photographerProfile.logo} alt="Logo" className="h-10 object-contain" />
+            ) : photographerProfile?.profileImage ? (
+              <img src={photographerProfile.profileImage} alt="Profile" className="h-10 w-10 rounded-full object-cover shadow-sm" />
+            ) : null}
+            
+            <div className={`${photographerProfile?.logo ? 'hidden md:block' : 'block'}`}>
+              <h2 className="font-bold text-sm md:text-base leading-tight text-foreground">
+                {photographerProfile?.businessName || photographerProfile?.displayName || 'Photographer'}
+              </h2>
+              {photographerProfile?.businessName && photographerProfile?.displayName && (
+                <p className="text-xs text-muted-foreground">{photographerProfile.displayName}</p>
+              )}
+            </div>
+          </div>
+
+          {/* Center Title (Desktop only) */}
+          <div className="hidden lg:flex flex-1 justify-center">
+            <h1 className="font-semibold text-lg tracking-tight text-foreground/90">{galleryName}</h1>
+          </div>
+
+          {/* Client Controls */}
           <div className="flex items-center gap-4">
             <button 
               onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
-              className={`flex items-center gap-2 text-sm px-5 py-2.5 rounded-full border transition-all duration-300 shadow-sm ${
+              className={`flex items-center gap-2 text-sm px-4 md:px-5 py-2.5 rounded-full border transition-all duration-300 ${
                 showFavoritesOnly 
-                  ? 'bg-primary text-primary-foreground border-primary shadow-[0_4px_14px_0_hsl(var(--primary)/30%)] scale-105' 
-                  : 'bg-card/50 text-muted-foreground border-border/50 hover:bg-secondary/50 hover:text-foreground'
+                  ? 'brand-bg text-white brand-border brand-shadow scale-105' 
+                  : 'bg-card/50 text-muted-foreground border-border/50 hover:bg-secondary hover:text-foreground'
               }`}
             >
-              <Heart className={`h-4 w-4 transition-colors ${showFavoritesOnly ? 'fill-primary-foreground text-primary-foreground' : ''}`} />
-              <span className="font-medium">{favoriteIds.size} Favorites</span>
+              <Heart className={`h-4 w-4 transition-colors ${showFavoritesOnly ? 'fill-white text-white' : ''}`} />
+              <span className="font-medium hidden md:inline">{favoriteIds.size} Favorites</span>
+              <span className="font-medium md:hidden">{favoriteIds.size}</span>
             </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 md:px-6 py-12 relative z-10">
+      {/* Mobile Title */}
+      <div className="lg:hidden px-4 pt-6 pb-2 text-center">
+        <h1 className="font-bold text-2xl tracking-tight text-foreground">{galleryName}</h1>
+        <p className="text-sm text-muted-foreground mt-1">{photos.length} Photos</p>
+      </div>
+
+      <main className="max-w-7xl mx-auto px-4 md:px-6 py-8 md:py-12 relative z-10">
         {photos.length === 0 ? (
           <div className="py-32 flex flex-col items-center justify-center text-center">
             <div className="h-24 w-24 bg-secondary/50 rounded-full flex items-center justify-center mb-6 shadow-inner">
@@ -328,6 +372,90 @@ const PublicGalleryPage = () => {
           >
             <ChevronRight className="h-8 w-8" />
           </button>
+        </div>
+      )}
+
+      {/* Photographer Profile Modal */}
+      {showProfileModal && photographerProfile && (
+        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowProfileModal(false)}>
+          <div 
+            className="bg-card w-full max-w-md rounded-3xl shadow-2xl border border-border/50 overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="h-32 brand-bg relative">
+              <button 
+                onClick={() => setShowProfileModal(false)}
+                className="absolute top-4 right-4 p-2 bg-black/20 hover:bg-black/40 text-white rounded-full backdrop-blur-md transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <div className="px-8 pb-8 relative">
+              {/* Avatar overhanging the banner */}
+              <div className="absolute -top-16 left-8 h-28 w-28 rounded-full border-4 border-card bg-secondary overflow-hidden shadow-xl flex items-center justify-center">
+                {photographerProfile.profileImage ? (
+                  <img src={photographerProfile.profileImage} alt={photographerProfile.displayName} className="w-full h-full object-cover" />
+                ) : (
+                  <ImageIcon className="h-10 w-10 text-muted-foreground/50" />
+                )}
+              </div>
+              
+              <div className="pt-16">
+                <h2 className="text-2xl font-bold text-foreground tracking-tight">
+                  {photographerProfile.businessName || photographerProfile.displayName}
+                </h2>
+                {photographerProfile.businessName && photographerProfile.displayName && (
+                  <p className="text-muted-foreground font-medium text-sm mt-1">{photographerProfile.displayName}</p>
+                )}
+                
+                {photographerProfile.bio && (
+                  <p className="mt-4 text-sm text-foreground/80 leading-relaxed">
+                    {photographerProfile.bio}
+                  </p>
+                )}
+                
+                <div className="mt-6 space-y-3">
+                  {(photographerProfile.location?.city || photographerProfile.location?.country) && (
+                    <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                      <MapPin className="h-4 w-4 brand-text" />
+                      <span>{[photographerProfile.location.city, photographerProfile.location.state, photographerProfile.location.country].filter(Boolean).join(', ')}</span>
+                    </div>
+                  )}
+                  
+                  {photographerProfile.website && (
+                    <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                      <Globe className="h-4 w-4 brand-text" />
+                      <a href={photographerProfile.website.startsWith('http') ? photographerProfile.website : `https://${photographerProfile.website}`} target="_blank" rel="noreferrer" className="hover:brand-text transition-colors">
+                        {photographerProfile.website.replace(/^https?:\/\//, '')}
+                      </a>
+                    </div>
+                  )}
+                </div>
+
+                {/* Social Links */}
+                {(photographerProfile.socialLinks?.instagram || photographerProfile.socialLinks?.facebook || photographerProfile.socialLinks?.youtube) && (
+                  <div className="mt-8 flex items-center gap-4 pt-6 border-t border-border/50">
+                    {photographerProfile.socialLinks.instagram && (
+                      <a href={photographerProfile.socialLinks.instagram.startsWith('http') ? photographerProfile.socialLinks.instagram : `https://instagram.com/${photographerProfile.socialLinks.instagram.replace('@', '')}`} target="_blank" rel="noreferrer" className="p-2.5 bg-secondary hover:bg-secondary/80 rounded-full transition-colors group">
+                        <Globe className="h-5 w-5 text-foreground/70 group-hover:brand-text" />
+                      </a>
+                    )}
+                    {photographerProfile.socialLinks.facebook && (
+                      <a href={photographerProfile.socialLinks.facebook} target="_blank" rel="noreferrer" className="p-2.5 bg-secondary hover:bg-secondary/80 rounded-full transition-colors group">
+                        <Globe className="h-5 w-5 text-foreground/70 group-hover:brand-text" />
+                      </a>
+                    )}
+                    {photographerProfile.socialLinks.youtube && (
+                      <a href={photographerProfile.socialLinks.youtube} target="_blank" rel="noreferrer" className="p-2.5 bg-secondary hover:bg-secondary/80 rounded-full transition-colors group">
+                        <Globe className="h-5 w-5 text-foreground/70 group-hover:brand-text" />
+                      </a>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

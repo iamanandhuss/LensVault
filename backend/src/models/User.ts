@@ -9,8 +9,13 @@ export interface IUser extends Document {
     refresh_token: string;
     expiry_date: number;
   };
-  subscriptionPlan: 'Free' | 'Starter' | 'Pro' | 'Studio';
-  role: 'photographer' | 'admin';
+  subscription: {
+    plan: 'FREE' | 'STARTER' | 'PRO' | 'STUDIO';
+    status: 'active' | 'canceled' | 'past_due' | 'unpaid';
+    cancelAtPeriodEnd: boolean;
+  };
+  role: 'photographer' | 'super_admin';
+  status: 'active' | 'suspended' | 'deleted';
   createdAt: Date;
   updatedAt: Date;
 }
@@ -20,17 +25,18 @@ const userSchema = new Schema<IUser>(
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true, lowercase: true },
     passwordHash: { type: String, required: true },
-    role: { type: String, enum: ['photographer', 'admin'], default: 'photographer' },
+    role: { type: String, enum: ['photographer', 'super_admin'], default: 'photographer' },
+    status: { type: String, enum: ['active', 'suspended', 'deleted'], default: 'active' },
     googleDriveTokens: {
       access_token: String,
       refresh_token: String,
       expiry_date: Number,
     },
-    subscriptionPlan: {
-      type: String,
-      enum: ['Free', 'Starter', 'Pro', 'Studio'],
-      default: 'Free',
-    },
+    subscription: {
+      plan: { type: String, enum: ['FREE', 'STARTER', 'PRO', 'STUDIO'], default: 'FREE' },
+      status: { type: String, enum: ['active', 'canceled', 'past_due', 'unpaid'], default: 'active' },
+      cancelAtPeriodEnd: { type: Boolean, default: false }
+    }
   },
   { timestamps: true }
 );

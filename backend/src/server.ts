@@ -17,6 +17,7 @@ import integrationRoutes from './routes/integrationRoutes';
 import subscriptionRoutes from './routes/subscriptionRoutes';
 import favoriteRoutes from './routes/favoriteRoutes';
 import dashboardRoutes from './routes/dashboardRoutes';
+import profileRoutes from './routes/profileRoutes';
 
 dotenv.config();
 
@@ -70,6 +71,7 @@ app.use('/api/integrations', integrationRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/favorites', favoriteRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/profile', profileRoutes);
 
 // Centralized Error Handling Middleware (MUST be last)
 app.use(errorHandler);

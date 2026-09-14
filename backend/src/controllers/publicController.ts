@@ -81,6 +81,10 @@ export const getGalleryData = async (req: Request, res: Response): Promise<void>
       return;
     }
 
+    // Fetch the photographer's profile for branding
+    const { Profile } = await import('../models/Profile');
+    const photographerProfile = await Profile.findOne({ userId: gallery.photographerId });
+
     // Only fetch active photos
     const filter: any = { galleryId: gallery._id, status: 'active' };
     
@@ -92,7 +96,8 @@ export const getGalleryData = async (req: Request, res: Response): Promise<void>
     const total = await Photo.countDocuments(filter);
     
     res.status(200).json({
-      gallery: { id: gallery._id, name: gallery.name },
+      gallery: { id: gallery._id, name: gallery.name, photographerId: gallery.photographerId },
+      photographerProfile,
       photos,
       pagination: {
         page,
