@@ -25,6 +25,7 @@ export const getAuthUrl = async (req: AuthRequest, res: Response): Promise<void>
       prompt: 'consent',
       state: req.user._id.toString(), // Pass user ID through state
     });
+    console.log('Generated Auth URL with SCOPES:', SCOPES, '\nURL:', url);
     res.status(200).json({ url });
   } catch (error) {
     res.status(500).json({ error: 'Failed to generate auth url' });
