@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Image, Loader2, Plus, X, Folder, Copy, Check, RefreshCw, Trash2, AlertTriangle } from 'lucide-react';
+import { Image, Loader2, Plus, X, Folder, Copy, Check, RefreshCw, Trash2, AlertTriangle, UploadCloud } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
@@ -39,6 +39,8 @@ const GalleriesPage = () => {
 
   // Sync state
   const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [syncingGalleries, setSyncingGalleries] = useState<Set<string>>(new Set());
+  const [pushingFavorites, setPushingFavorites] = useState<Set<string>>(new Set());
   const [syncProgress, setSyncProgress] = useState<Record<string, number>>({});
 
   // Delete state
@@ -159,6 +161,31 @@ const GalleriesPage = () => {
         return next;
       });
       alert(err.response?.data?.error || 'Failed to start sync. Did you connect Google Drive?');
+    }
+  };
+
+  const handlePushFavorites = async (galleryId: string) => {
+    setPushingFavorites(prev => new Set(prev).add(galleryId));
+    try {
+      const response = await axios.post(`${API_URL}/api/integration/google/sync-favorites`, {
+        galleryId
+      }, { withCredentials: true });
+      alert(response.data.message || 'Started pushing favorites!');
+      // It happens in the background, we can remove loading state soon
+      setTimeout(() => {
+        setPushingFavorites(prev => {
+          const next = new Set(prev);
+          next.delete(galleryId);
+          return next;
+        });
+      }, 3000);
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Failed to push favorites to drive');
+      setPushingFavorites(prev => {
+        const next = new Set(prev);
+        next.delete(galleryId);
+        return next;
+      });
     }
   };
 
@@ -343,17 +370,34 @@ const GalleriesPage = () => {
                     <span className="truncate">{gallery.googleDriveFolderId}</span>
                   </div>
                   
-                  <button 
-                    onClick={() => handleSyncGallery(gallery._id, gallery.googleDriveFolderId)}
-                    disabled={syncingId === gallery._id}
-                    className="text-xs flex items-center gap-1 font-medium text-primary hover:text-primary/80 disabled:opacity-50"
-                  >
-                    {syncingId === gallery._id ? (
-                      <><Loader2 className="h-3 w-3 animate-spin" /> Syncing...</>
-                    ) : (
-                      <><RefreshCw className="h-3 w-3" /> Sync Photos</>
+                  <div className="flex items-center gap-2">
+                    {gallery.favoritesDownloadLink && (
+                      <button
+                        onClick={() => handlePushFavorites(gallery._id)}
+                        disabled={pushingFavorites.has(gallery._id)}
+                        className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1.5 rounded transition-colors disabled:opacity-50"
+                        title="Copy favorited photos to the Favorites Drive link"
+                      >
+                        {pushingFavorites.has(gallery._id) ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <UploadCloud className="h-3.5 w-3.5" />
+                        )}
+                        Push Favs
+                      </button>
                     )}
-                  </button>
+                    <button 
+                      onClick={() => handleSyncGallery(gallery._id, gallery.googleDriveFolderId)}
+                      disabled={syncingId === gallery._id}
+                      className="text-xs flex items-center gap-1 font-medium text-primary hover:text-primary/80 disabled:opacity-50"
+                    >
+                      {syncingId === gallery._id ? (
+                        <><Loader2 className="h-3 w-3 animate-spin" /> Syncing...</>
+                      ) : (
+                        <><RefreshCw className="h-3 w-3" /> Sync Photos</>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
