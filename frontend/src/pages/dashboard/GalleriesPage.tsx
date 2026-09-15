@@ -167,7 +167,7 @@ const GalleriesPage = () => {
   const handlePushFavorites = async (galleryId: string) => {
     setPushingFavorites(prev => new Set(prev).add(galleryId));
     try {
-      const response = await axios.post(`${API_URL}/api/integration/google/sync-favorites`, {
+      const response = await axios.post(`${API_URL}/api/integrations/google/sync-favorites`, {
         galleryId
       }, { withCredentials: true });
       alert(response.data.message || 'Started pushing favorites!');
