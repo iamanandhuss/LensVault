@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Image, Loader2, Plus, X, Folder, Copy, Check, RefreshCw, Trash2, AlertTriangle, UploadCloud, Heart } from 'lucide-react';
+import { Image, Loader2, Plus, X, Folder, Copy, Check, RefreshCw, Trash2, AlertTriangle, UploadCloud } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
@@ -15,6 +15,7 @@ interface Gallery {
   slug: string;
   clientId: Client;
   googleDriveFolderId: string;
+  favoritesDownloadLink?: string;
   coverPhotoUrl?: string;
   createdAt: string;
 }
@@ -39,9 +40,7 @@ const GalleriesPage = () => {
   // Sync state
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [syncingGalleries, setSyncingGalleries] = useState<Set<string>>(new Set());
-  const [viewingFavoritesFor, setViewingFavoritesFor] = useState<Gallery | null>(null);
-  const [favoritesData, setFavoritesData] = useState<any[]>([]);
-  const [loadingFavorites, setLoadingFavorites] = useState(false);
+  const [pushingFavorites, setPushingFavorites] = useState<Set<string>>(new Set());
   const [syncProgress, setSyncProgress] = useState<Record<string, number>>({});
 
   // Delete state
@@ -146,10 +145,6 @@ const GalleriesPage = () => {
             clearInterval(pollInterval);
             setSyncingId(null);
             alert('Background sync encountered an error. Check logs.');
-          } else if (syncStatus === 'GOOGLE_REAUTH_REQUIRED') {
-            clearInterval(pollInterval);
-            setSyncingId(null);
-            alert('Google Drive permissions need to be updated. LensVault needs additional permission to complete this operation.\n\nPlease go to Settings -> Integrations and click Reconnect Google Drive.');
           }
         } catch (pollErr) {
           clearInterval(pollInterval);
@@ -169,17 +164,28 @@ const GalleriesPage = () => {
     }
   };
 
-  const handleViewFavorites = async (gallery: Gallery) => {
-    setViewingFavoritesFor(gallery);
-    setLoadingFavorites(true);
-    setFavoritesData([]);
+  const handlePushFavorites = async (galleryId: string) => {
+    setPushingFavorites(prev => new Set(prev).add(galleryId));
     try {
-      const response = await axios.get(`${API_URL}/api/favorites/gallery/${gallery._id}/details`, { withCredentials: true });
-      setFavoritesData(response.data.favorites);
+      const response = await axios.post(`${API_URL}/api/integrations/google/sync-favorites`, {
+        galleryId
+      }, { withCredentials: true });
+      alert(response.data.message || 'Started pushing favorites!');
+      // It happens in the background, we can remove loading state soon
+      setTimeout(() => {
+        setPushingFavorites(prev => {
+          const next = new Set(prev);
+          next.delete(galleryId);
+          return next;
+        });
+      }, 3000);
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to fetch favorites');
-    } finally {
-      setLoadingFavorites(false);
+      alert(err.response?.data?.error || 'Failed to push favorites to drive');
+      setPushingFavorites(prev => {
+        const next = new Set(prev);
+        next.delete(galleryId);
+        return next;
+      });
     }
   };
 
@@ -197,7 +203,15 @@ const GalleriesPage = () => {
     }
   };
 
-
+  const handleUpdateLink = async (galleryId: string, link: string) => {
+    try {
+      await axios.put(`${API_URL}/api/galleries/${galleryId}`, { favoritesDownloadLink: link }, { withCredentials: true });
+      alert('Download link saved!');
+      fetchData();
+    } catch (err) {
+      alert('Failed to save download link');
+    }
+  };
 
   const handleCopySecret = () => {
     if (newlyCreatedSecret) {
@@ -326,7 +340,29 @@ const GalleriesPage = () => {
                 </div>
                 <p className="text-sm text-muted-foreground mb-4">Client: {gallery.clientId?.name || 'Unknown'}</p>
                 
-
+                <div className="mb-4">
+                  <label className="text-xs font-semibold text-muted-foreground mb-1 block">Favorites Download Link</label>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      id={`link-${gallery._id}`}
+                      placeholder="Paste Google Drive link..." 
+                      defaultValue={gallery.favoritesDownloadLink || ''}
+                      className="w-full h-8 text-xs px-2 rounded-md bg-background border border-border/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
+                    />
+                    <button 
+                      onClick={() => {
+                        const input = document.getElementById(`link-${gallery._id}`) as HTMLInputElement;
+                        if (input && input.value !== gallery.favoritesDownloadLink) {
+                          handleUpdateLink(gallery._id, input.value);
+                        }
+                      }}
+                      className="h-8 px-3 bg-primary text-primary-foreground text-xs font-medium rounded-md hover:bg-primary/90 transition-colors shrink-0"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
 
                 <div className="mt-auto pt-4 border-t flex justify-between items-center">
                   <div className="flex items-center text-xs text-muted-foreground truncate max-w-[150px]" title={gallery.googleDriveFolderId}>
@@ -335,12 +371,21 @@ const GalleriesPage = () => {
                   </div>
                   
                   <div className="flex items-center gap-2">
+                    {gallery.favoritesDownloadLink && (
                       <button
-                        onClick={() => handleViewFavorites(gallery)}
-                        className="flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 px-2.5 py-1.5 rounded transition-colors"
+                        onClick={() => handlePushFavorites(gallery._id)}
+                        disabled={pushingFavorites.has(gallery._id)}
+                        className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1.5 rounded transition-colors disabled:opacity-50"
+                        title="Copy favorited photos to the Favorites Drive link"
                       >
-                        <Heart className="h-3.5 w-3.5" /> View Favorites
+                        {pushingFavorites.has(gallery._id) ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <UploadCloud className="h-3.5 w-3.5" />
+                        )}
+                        Push Favs
                       </button>
+                    )}
                     <button 
                       onClick={() => handleSyncGallery(gallery._id, gallery.googleDriveFolderId)}
                       disabled={syncingId === gallery._id}
@@ -475,62 +520,6 @@ const GalleriesPage = () => {
               >
                 {isDeleting ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Yes, Delete'}
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* View Favorites Modal */}
-      {viewingFavoritesFor && (
-        <div className="fixed inset-0 bg-background/90 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-card w-full max-w-4xl max-h-[85vh] flex flex-col rounded-2xl shadow-2xl border border-border/50">
-            <div className="flex items-center justify-between p-6 border-b border-border/50">
-              <div>
-                <h2 className="text-2xl font-bold">Favorites: {viewingFavoritesFor.name}</h2>
-                <p className="text-muted-foreground text-sm mt-1">{favoritesData.length} photos selected by clients.</p>
-              </div>
-              <button onClick={() => setViewingFavoritesFor(null)} className="p-2 hover:bg-secondary rounded-full transition-colors text-muted-foreground hover:text-foreground">
-                <X className="h-6 w-6" />
-              </button>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto p-6">
-              {loadingFavorites ? (
-                <div className="flex flex-col items-center justify-center h-48">
-                  <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
-                  <p className="text-muted-foreground">Loading favorites...</p>
-                </div>
-              ) : favoritesData.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-48 text-center">
-                  <Heart className="h-12 w-12 text-muted-foreground/30 mb-4" />
-                  <h3 className="text-lg font-medium text-foreground">No Favorites Yet</h3>
-                  <p className="text-muted-foreground text-sm mt-1">Your clients haven't selected any favorites for this gallery.</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                  {favoritesData.map((fav, index) => (
-                    <div key={fav._id || index} className="group relative rounded-xl overflow-hidden border border-border/50 bg-secondary/20">
-                      <div className="aspect-square bg-secondary/50 flex items-center justify-center relative overflow-hidden">
-                        {fav.photo?.thumbnailUrl ? (
-                          <img 
-                            src={fav.photo.thumbnailUrl} 
-                            alt={fav.photo.fileName || 'Favorite'} 
-                            className="absolute inset-0 w-full h-full object-cover"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <Image className="h-8 w-8 text-muted-foreground/30" />
-                        )}
-                      </div>
-                      <div className="p-3 bg-card border-t border-border/50">
-                        <p className="text-sm font-semibold text-foreground truncate" title={fav.photo?.fileName || 'Unknown File'}>
-                          {fav.photo?.fileName || 'Unknown File'}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           </div>
         </div>

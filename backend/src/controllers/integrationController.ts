@@ -4,7 +4,8 @@ import { AuthRequest } from '../middleware/authMiddleware';
 import { User } from '../models/User';
 import { Gallery } from '../models/Gallery';
 import { Photo } from '../models/Photo';
-import { getAllImagesInFolder } from '../services/googleDriveService';
+import { Favorite } from '../models/Favorite';
+import { getAllImagesInFolder, copyFilesToFolder } from '../services/googleDriveService';
 import fs from 'fs';
 import path from 'path';
 
@@ -14,7 +15,7 @@ const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_REDIRECT_URI
 );
 
-const SCOPES = ['https://www.googleapis.com/auth/drive.readonly'];
+const SCOPES = ['https://www.googleapis.com/auth/drive'];
 
 export const getAuthUrl = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -248,13 +249,79 @@ const runGallerySyncBackground = async (user: any, galleryId: string, folderId: 
     });
 
     console.log(`Background sync completed for gallery ${galleryId}. Total active photos: ${finalPhotoCount}`);
-  } catch (err: any) {
+  } catch (err) {
     console.error(`Background sync failed in process for gallery ${galleryId}:`, err);
-    let errorMessage = 'error';
-    if (err.message && (err.message.includes('invalid_grant') || err.message.includes('insufficient authentication scopes'))) {
-      errorMessage = 'GOOGLE_REAUTH_REQUIRED';
-    }
-    await Gallery.findByIdAndUpdate(galleryId, { syncStatus: errorMessage });
+    await Gallery.findByIdAndUpdate(galleryId, { syncStatus: 'error' });
   }
 };
 
+export const syncFavoritesToDrive = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { galleryId } = req.body;
+    const user = await User.findById(req.user._id);
+    const gallery = await Gallery.findOne({ _id: galleryId, photographerId: req.user._id });
+
+    if (!gallery) {
+      res.status(404).json({ error: 'Gallery not found' });
+      return;
+    }
+
+    if (!gallery.favoritesDownloadLink) {
+      res.status(400).json({ error: 'No favorites download link set for this gallery' });
+      return;
+    }
+
+    if (!user || !user.googleDriveTokens?.access_token) {
+      res.status(400).json({ error: 'Google Drive not connected' });
+      return;
+    }
+
+    // Extract the actual ID if the user pasted a full URL
+    let parsedFolderId = gallery.favoritesDownloadLink;
+    const match = gallery.favoritesDownloadLink.match(/[-\w]{25,}/);
+    if (match) {
+      parsedFolderId = match[0];
+    }
+
+    // 1. Get all favorite Photo IDs for this gallery
+    const favorites = await Favorite.find({ galleryId });
+    if (favorites.length === 0) {
+      res.status(400).json({ error: 'No favorites found for this gallery' });
+      return;
+    }
+
+    // Get unique photoIds
+    const uniquePhotoIds = Array.from(new Set(favorites.map(f => f.photoId.toString())));
+
+    // 2. Fetch the Photos to get their Google Drive File IDs
+    const photos = await Photo.find({
+      _id: { $in: uniquePhotoIds },
+      galleryId,
+      status: 'active'
+    });
+
+    const fileIdsToCopy = photos.map(p => p.googleDriveFileId).filter(Boolean);
+
+    if (fileIdsToCopy.length === 0) {
+      res.status(400).json({ error: 'No active Google Drive files found for the favorites' });
+      return;
+    }
+
+    // 3. Initiate background copy task
+    res.status(200).json({ status: 'started', message: `Started copying ${fileIdsToCopy.length} photos in the background.` });
+
+    // Floating Promise for background copy
+    oauth2Client.setCredentials(user.googleDriveTokens);
+    const drive = google.drive({ version: 'v3', auth: oauth2Client });
+    
+    copyFilesToFolder(drive, fileIdsToCopy, parsedFolderId).then(result => {
+      console.log(`Copy favorites for gallery ${galleryId} finished. Success: ${result.success}, Failed: ${result.failed}`);
+    }).catch(err => {
+      console.error(`Background copy favorites failed for gallery ${galleryId}:`, err);
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to sync favorites to drive' });
+  }
+};
