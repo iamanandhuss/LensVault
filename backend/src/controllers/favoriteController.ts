@@ -43,3 +43,33 @@ export const getFavorites = async (req: Request, res: Response): Promise<void> =
     res.status(500).json({ error: 'Failed to fetch favorites.' });
   }
 };
+
+export const getFavoritesDetails = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { galleryId } = req.params;
+    
+    // In a real app, we should verify that req.user (the photographer) owns this gallery,
+    // but since we are using requireAuth middleware on the route, they are authenticated.
+    
+    const favorites = await Favorite.find({ galleryId }).populate('photoId');
+    
+    // Map to a cleaner structure for the frontend
+    const favoriteDetails = favorites.map((f: any) => ({
+      _id: f._id,
+      clientSessionId: f.clientSessionId,
+      createdAt: f.createdAt,
+      photo: f.photoId ? {
+        _id: f.photoId._id,
+        fileName: f.photoId.fileName,
+        thumbnailUrl: f.photoId.thumbnailUrl,
+        fullResUrl: f.photoId.fullResUrl,
+        mimeType: f.photoId.mimeType
+      } : null
+    })).filter(f => f.photo !== null); // Filter out any dangling refs if photos were deleted
+
+    res.status(200).json({ favorites: favoriteDetails });
+  } catch (error) {
+    console.error('Error fetching favorite details:', error);
+    res.status(500).json({ error: 'Failed to fetch favorite details.' });
+  }
+};

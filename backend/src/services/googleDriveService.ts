@@ -81,32 +81,3 @@ export const getAllImagesInFolder = async (
 
   return Array.from(uniqueFilesMap.values());
 };
-
-/**
- * Copies a list of files to a destination folder.
- */
-export const copyFilesToFolder = async (
-  drive: drive_v3.Drive,
-  fileIds: string[],
-  destinationFolderId: string
-): Promise<{ success: number; failed: number }> => {
-  let success = 0;
-  let failed = 0;
-
-  for (const fileId of fileIds) {
-    try {
-      await drive.files.copy({
-        fileId: fileId,
-        requestBody: {
-          parents: [destinationFolderId],
-        },
-      });
-      success++;
-    } catch (error: any) {
-      console.error(`Failed to copy file ${fileId}:`, error?.message || error);
-      failed++;
-    }
-  }
-
-  return { success, failed };
-};
