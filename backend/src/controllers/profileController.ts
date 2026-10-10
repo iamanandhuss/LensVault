@@ -20,8 +20,12 @@ export const getProfile = async (req: AuthRequest, res: Response): Promise<void>
     
     // Return both user account info and public profile info
     const user = await User.findById(req.user._id).select('-passwordHash -googleDriveTokens');
+    const hasGoogleDriveLinked = Boolean(await User.exists({
+      _id: req.user._id,
+      'googleDriveTokens.access_token': { $exists: true, $ne: '' },
+    }));
     
-    res.status(200).json({ user, profile });
+    res.status(200).json({ user: user ? { ...user.toObject(), hasGoogleDriveLinked } : null, profile });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Error fetching profile' });

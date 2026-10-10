@@ -297,7 +297,11 @@ const SettingsPage = () => {
                   </div>
                   <div>
                     <h3 className="font-bold text-foreground">Google Drive</h3>
-                    <p className="text-sm text-muted-foreground">Sync galleries directly from your Drive folders.</p>
+                    <p className="text-sm text-muted-foreground">
+                      {user.hasGoogleDriveLinked
+                        ? 'Drive is connected. Reconnect to approve updated permissions if transfers are denied.'
+                        : 'Connect Drive to sync galleries and copy client favorites.'}
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -312,7 +316,7 @@ const SettingsPage = () => {
                     }}
                     className="text-sm font-medium text-foreground bg-primary/20 hover:bg-primary/30 text-primary px-4 py-2 rounded-lg border border-primary/30 transition-colors"
                   >
-                    Connect Google Drive
+                    {user.hasGoogleDriveLinked ? 'Reconnect Google Drive' : 'Connect Google Drive'}
                   </button>
                 </div>
               </div>

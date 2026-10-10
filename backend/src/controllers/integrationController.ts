@@ -48,6 +48,7 @@ export const getAuthUrl = async (req: AuthRequest, res: Response): Promise<void>
     const url = oauth2Client.generateAuthUrl({
       access_type: 'offline',
       scope: SCOPES,
+      include_granted_scopes: true,
       prompt: 'consent',
       state,
     });
@@ -356,14 +357,19 @@ export const syncFavoritesToDrive = async (req: AuthRequest, res: Response): Pro
 
     res.status(202).json({ status: 'syncing', total: fileIdsToCopy.length });
     void copyFilesToFolder(drive, fileIdsToCopy, parsedFolderId).then(async result => {
+      const missingDriveScope = result.failureReasons.some(reason =>
+        /insufficientPermissions|insufficient authentication scopes/i.test(reason),
+      );
       await Gallery.findByIdAndUpdate(galleryId, { $set: {
         favoritesSyncStatus: result.failed ? 'completed_with_errors' : 'completed',
         favoritesSyncCopied: result.success,
         favoritesSyncSkipped: result.skipped,
         favoritesSyncFailed: result.failed,
-        favoritesSyncError: result.failed
-          ? result.failureReasons.slice(0, 2).join(' | ') || 'Google Drive rejected one or more copy requests.'
-          : '',
+        favoritesSyncError: missingDriveScope
+          ? 'Reconnect Google Drive in Settings → Integrations and approve the requested Drive access, then retry.'
+          : result.failed
+            ? result.failureReasons.slice(0, 2).join(' | ') || 'Google Drive rejected one or more copy requests.'
+            : '',
         favoritesSyncedAt: new Date(),
       } });
     }).catch(async error => {
