@@ -20,6 +20,18 @@ const createOAuthClient = () => {
 
 const SCOPES = ['https://www.googleapis.com/auth/drive'];
 
+const parseDriveFolderId = (value: string): string | null => {
+  try {
+    const url = new URL(value);
+    if (url.hostname !== 'drive.google.com') return null;
+    const folderPath = url.pathname.match(/\/folders\/([\w-]+)/);
+    const id = folderPath?.[1] || url.searchParams.get('id');
+    return id && /^[\w-]+$/.test(id) ? id : null;
+  } catch {
+    return /^[\w-]{10,}$/.test(value) ? value : null;
+  }
+};
+
 export const getAuthUrl = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const oauth2Client = createOAuthClient();
@@ -258,7 +270,11 @@ const runGallerySyncBackground = async (user: any, galleryId: string, folderId: 
 
 export const syncFavoritesToDrive = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { galleryId } = req.body;
+    const { galleryId } = req.body || {};
+    if (typeof galleryId !== 'string') {
+      res.status(400).json({ error: 'Gallery ID is required.' });
+      return;
+    }
     const user = await User.findById(req.user._id);
     const gallery = await Gallery.findOne({ _id: galleryId, photographerId: req.user._id });
 
@@ -277,11 +293,10 @@ export const syncFavoritesToDrive = async (req: AuthRequest, res: Response): Pro
       return;
     }
 
-    // Extract the actual ID if the user pasted a full URL
-    let parsedFolderId = gallery.favoritesDownloadLink;
-    const match = gallery.favoritesDownloadLink.match(/[-\w]{25,}/);
-    if (match) {
-      parsedFolderId = match[0];
+    const parsedFolderId = parseDriveFolderId(gallery.favoritesDownloadLink.trim());
+    if (!parsedFolderId) {
+      res.status(400).json({ error: 'Enter a valid Google Drive folder link or folder ID.' });
+      return;
     }
 
     // 1. Get all favorite Photo IDs for this gallery
@@ -301,29 +316,94 @@ export const syncFavoritesToDrive = async (req: AuthRequest, res: Response): Pro
       status: 'active'
     });
 
-    const fileIdsToCopy = photos.map(p => p.googleDriveFileId).filter(Boolean);
+    const fileIdsToCopy = Array.from(new Set(photos.map(p => p.googleDriveFileId).filter(Boolean)));
 
     if (fileIdsToCopy.length === 0) {
       res.status(400).json({ error: 'No active Google Drive files found for the favorites' });
       return;
     }
 
-    // 3. Initiate background copy task
-    res.status(200).json({ status: 'started', message: `Started copying ${fileIdsToCopy.length} photos in the background.` });
-
-    // Floating Promise for background copy
     const oauth2Client = createOAuthClient();
     oauth2Client.setCredentials(user.googleDriveTokens);
     const drive = google.drive({ version: 'v3', auth: oauth2Client });
-    
-    copyFilesToFolder(drive, fileIdsToCopy, parsedFolderId).then(result => {
-      console.log(`Copy favorites for gallery ${galleryId} finished. Success: ${result.success}, Failed: ${result.failed}`);
-    }).catch(err => {
-      console.error(`Background copy favorites failed for gallery ${galleryId}:`, err);
+
+    const destination = await drive.files.get({
+      fileId: parsedFolderId,
+      fields: 'id,name,mimeType,capabilities(canAddChildren)',
+      supportsAllDrives: true,
+    });
+    if (destination.data.mimeType !== 'application/vnd.google-apps.folder') {
+      res.status(400).json({ error: 'The download link must point to a Google Drive folder.' });
+      return;
+    }
+    if (!destination.data.capabilities?.canAddChildren) {
+      res.status(403).json({ error: 'Your connected Google account needs Editor access to the destination folder.' });
+      return;
+    }
+
+    const claimedGallery = await Gallery.findOneAndUpdate(
+      { _id: galleryId, photographerId: req.user._id, favoritesSyncStatus: { $ne: 'syncing' } },
+      { $set: {
+        favoritesSyncStatus: 'syncing', favoritesSyncTotal: fileIdsToCopy.length,
+        favoritesSyncCopied: 0, favoritesSyncSkipped: 0, favoritesSyncFailed: 0, favoritesSyncError: '',
+      } },
+      { new: true },
+    );
+    if (!claimedGallery) {
+      res.status(409).json({ error: 'A favorites transfer is already in progress.' });
+      return;
+    }
+
+    res.status(202).json({ status: 'syncing', total: fileIdsToCopy.length });
+    void copyFilesToFolder(drive, fileIdsToCopy, parsedFolderId).then(async result => {
+      await Gallery.findByIdAndUpdate(galleryId, { $set: {
+        favoritesSyncStatus: result.failed ? 'completed_with_errors' : 'completed',
+        favoritesSyncCopied: result.success,
+        favoritesSyncSkipped: result.skipped,
+        favoritesSyncFailed: result.failed,
+        favoritesSyncError: result.failed ? 'Check that each source photo can be copied and that the destination folder is writable.' : '',
+        favoritesSyncedAt: new Date(),
+      } });
+    }).catch(async error => {
+      console.error(`Favorites transfer failed for gallery ${galleryId}:`, error instanceof Error ? error.message : 'Unknown error');
+      await Gallery.findByIdAndUpdate(galleryId, { $set: {
+        favoritesSyncStatus: 'error', favoritesSyncFailed: fileIdsToCopy.length,
+        favoritesSyncError: 'Google Drive could not complete the transfer. Check Drive access and try again.',
+      } });
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to sync favorites to drive' });
+    const driveError = error as { code?: number; response?: { status?: number } };
+    const status = driveError.code || driveError.response?.status;
+    if (status === 404) {
+      res.status(404).json({ error: 'Destination folder was not found or is not shared with your connected Google account.' });
+      return;
+    }
+    if (status === 403) {
+      res.status(403).json({ error: 'Google Drive denied access. Give your connected account Editor access to the destination folder.' });
+      return;
+    }
+    console.error('Failed to start favorites transfer.');
+    res.status(500).json({ error: 'Could not start the Google Drive transfer. Check the Drive connection and folder link.' });
+  }
+};
+
+export const getFavoritesSyncStatus = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { galleryId } = req.params;
+    if (typeof galleryId !== 'string') {
+      res.status(400).json({ error: 'Invalid gallery ID.' });
+      return;
+    }
+    const gallery = await Gallery.findOne({ _id: galleryId, photographerId: req.user._id }).select(
+      'favoritesSyncStatus favoritesSyncTotal favoritesSyncCopied favoritesSyncSkipped favoritesSyncFailed favoritesSyncError favoritesSyncedAt',
+    );
+    if (!gallery) {
+      res.status(404).json({ error: 'Gallery not found.' });
+      return;
+    }
+    res.status(200).json(gallery);
+  } catch {
+    res.status(500).json({ error: 'Could not read the transfer status.' });
   }
 };

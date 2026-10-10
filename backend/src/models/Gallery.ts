@@ -11,6 +11,13 @@ export interface IGallery extends Document {
   coverPhotoUrl?: string;
   isActive: boolean;
   syncStatus: 'idle' | 'syncing' | 'error';
+  favoritesSyncStatus: 'idle' | 'syncing' | 'completed' | 'completed_with_errors' | 'error';
+  favoritesSyncTotal: number;
+  favoritesSyncCopied: number;
+  favoritesSyncSkipped: number;
+  favoritesSyncFailed: number;
+  favoritesSyncError?: string;
+  favoritesSyncedAt?: Date;
   photoCount: number;
   favoriteCount: number;
   lastSyncedAt?: Date;
@@ -30,6 +37,13 @@ const gallerySchema = new Schema<IGallery>(
     coverPhotoUrl: { type: String },
     isActive: { type: Boolean, default: true },
     syncStatus: { type: String, enum: ['idle', 'syncing', 'error'], default: 'idle' },
+    favoritesSyncStatus: { type: String, enum: ['idle', 'syncing', 'completed', 'completed_with_errors', 'error'], default: 'idle' },
+    favoritesSyncTotal: { type: Number, default: 0 },
+    favoritesSyncCopied: { type: Number, default: 0 },
+    favoritesSyncSkipped: { type: Number, default: 0 },
+    favoritesSyncFailed: { type: Number, default: 0 },
+    favoritesSyncError: { type: String },
+    favoritesSyncedAt: { type: Date },
     photoCount: { type: Number, default: 0 },
     favoriteCount: { type: Number, default: 0 },
     lastSyncedAt: { type: Date },

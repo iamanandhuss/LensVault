@@ -169,22 +169,31 @@ const GalleriesPage = () => {
       const response = await axios.post(`${API_URL}/api/integrations/google/sync-favorites`, {
         galleryId
       }, { withCredentials: true });
-      alert(response.data.message || 'Started pushing favorites!');
-      // It happens in the background, we can remove loading state soon
-      setTimeout(() => {
+      const pollStatus = async (attempt = 0): Promise<void> => {
+        if (attempt >= 60) throw new Error('Transfer is still running. Check back shortly.');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        const statusResponse = await axios.get(`${API_URL}/api/integrations/google/sync-favorites/${galleryId}`, { withCredentials: true });
+        const result = statusResponse.data;
+        if (result.favoritesSyncStatus === 'syncing') return pollStatus(attempt + 1);
+
+        if (result.favoritesSyncStatus === 'completed') {
+          alert(`Drive transfer complete: ${result.favoritesSyncCopied} copied, ${result.favoritesSyncSkipped} already present.`);
+        } else if (result.favoritesSyncStatus === 'completed_with_errors') {
+          alert(`Drive transfer finished with errors: ${result.favoritesSyncCopied} copied, ${result.favoritesSyncSkipped} already present, ${result.favoritesSyncFailed} failed. ${result.favoritesSyncError || ''}`);
+        } else {
+          throw new Error(result.favoritesSyncError || 'Google Drive could not complete the transfer.');
+        }
+      };
+
+      if (response.data.status === 'syncing') await pollStatus();
+    } catch (err: any) {
+      alert(err.response?.data?.error || err.message || 'Failed to transfer favorites to Drive.');
+    } finally {
         setPushingFavorites(prev => {
           const next = new Set(prev);
           next.delete(galleryId);
           return next;
         });
-      }, 3000);
-    } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to push favorites to drive');
-      setPushingFavorites(prev => {
-        const next = new Set(prev);
-        next.delete(galleryId);
-        return next;
-      });
     }
   };
 
@@ -378,7 +387,7 @@ const GalleriesPage = () => {
                         title="Copy favorited photos to the Favorites Drive link"
                       >
                         {pushingFavorites.has(gallery._id) ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Copying…</>
                         ) : (
                           <UploadCloud className="h-3.5 w-3.5" />
                         )}

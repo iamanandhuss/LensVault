@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { drive_v3 } from 'googleapis';
-import { getAllImagesInFolder } from './googleDriveService';
+import { copyFilesToFolder, getAllImagesInFolder } from './googleDriveService';
 
 test('Drive scan handles pagination, nested folders, duplicate files and unsupported types', async () => {
   const calls: Array<{ q?: string; pageToken?: string | null }> = [];
@@ -47,4 +47,26 @@ test('Drive scan does not traverse nested folders when disabled', async () => {
 
   const files = await getAllImagesInFolder(drive, 'root', false);
   assert.deepEqual(files.map(file => file.id), ['photo']);
+});
+
+test('favorite transfer distinguishes new copies, existing copies and per-file failures', async () => {
+  const copyCalls: Array<{ fileId: string; supportsAllDrives?: boolean }> = [];
+  const drive = {
+    files: {
+      list: async ({ q }: { q?: string }) => ({
+        data: { files: q?.includes("value='existing'") ? [{ id: 'already-there' }] : [] },
+      }),
+      copy: async (params: { fileId: string; supportsAllDrives?: boolean }) => {
+        copyCalls.push(params);
+        if (params.fileId === 'denied') throw Object.assign(new Error('permission denied'), { response: { status: 403 } });
+        return { data: { id: 'copied-file' } };
+      },
+    },
+  } as unknown as drive_v3.Drive;
+
+  const result = await copyFilesToFolder(drive, ['existing', 'new-file', 'denied'], 'destination-folder');
+
+  assert.deepEqual(result, { success: 1, skipped: 1, failed: 1, failedFileIds: ['denied'] });
+  assert.deepEqual(copyCalls.map(call => call.fileId), ['new-file', 'denied']);
+  assert.ok(copyCalls.every(call => call.supportsAllDrives === true));
 });

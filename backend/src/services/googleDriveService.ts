@@ -89,24 +89,39 @@ export const copyFilesToFolder = async (
   drive: drive_v3.Drive,
   fileIds: string[],
   destinationFolderId: string
-): Promise<{ success: number; failed: number }> => {
+): Promise<{ success: number; skipped: number; failed: number; failedFileIds: string[] }> => {
   let success = 0;
+  let skipped = 0;
   let failed = 0;
+  const failedFileIds: string[] = [];
 
   for (const fileId of fileIds) {
     try {
+      const alreadyCopied = await drive.files.list({
+        q: `'${destinationFolderId.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}' in parents and appProperties has { key='lensVaultSourceId' and value='${fileId.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}' } and trashed=false`,
+        pageSize: 1,
+        fields: 'files(id)',
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
+      });
+      if (alreadyCopied.data.files?.length) {
+        skipped++;
+        continue;
+      }
       await drive.files.copy({
         fileId: fileId,
         requestBody: {
           parents: [destinationFolderId],
+          appProperties: { lensVaultSourceId: fileId },
         },
+        supportsAllDrives: true,
       });
       success++;
-    } catch (error: any) {
-      console.error(`Failed to copy file ${fileId}:`, error?.message || error);
+    } catch {
       failed++;
+      failedFileIds.push(fileId);
     }
   }
 
-  return { success, failed };
+  return { success, skipped, failed, failedFileIds };
 };
