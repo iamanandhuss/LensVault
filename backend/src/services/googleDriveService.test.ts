@@ -58,7 +58,9 @@ test('favorite transfer distinguishes new copies, existing copies and per-file f
       }),
       copy: async (params: { fileId: string; supportsAllDrives?: boolean }) => {
         copyCalls.push(params);
-        if (params.fileId === 'denied') throw Object.assign(new Error('permission denied'), { response: { status: 403 } });
+        if (params.fileId === 'denied') throw Object.assign(new Error('permission denied'), {
+          response: { status: 403, data: { error: { errors: [{ reason: 'insufficientFilePermissions' }] } } },
+        });
         return { data: { id: 'copied-file' } };
       },
     },
@@ -66,7 +68,13 @@ test('favorite transfer distinguishes new copies, existing copies and per-file f
 
   const result = await copyFilesToFolder(drive, ['existing', 'new-file', 'denied'], 'destination-folder');
 
-  assert.deepEqual(result, { success: 1, skipped: 1, failed: 1, failedFileIds: ['denied'] });
+  assert.deepEqual(result, {
+    success: 1,
+    skipped: 1,
+    failed: 1,
+    failedFileIds: ['denied'],
+    failureReasons: ['HTTP 403 — insufficientFilePermissions — permission denied'],
+  });
   assert.deepEqual(copyCalls.map(call => call.fileId), ['new-file', 'denied']);
   assert.ok(copyCalls.every(call => call.supportsAllDrives === true));
 });

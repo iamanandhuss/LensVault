@@ -89,11 +89,12 @@ export const copyFilesToFolder = async (
   drive: drive_v3.Drive,
   fileIds: string[],
   destinationFolderId: string
-): Promise<{ success: number; skipped: number; failed: number; failedFileIds: string[] }> => {
+): Promise<{ success: number; skipped: number; failed: number; failedFileIds: string[]; failureReasons: string[] }> => {
   let success = 0;
   let skipped = 0;
   let failed = 0;
   const failedFileIds: string[] = [];
+  const failureReasons: string[] = [];
 
   for (const fileId of fileIds) {
     try {
@@ -117,11 +118,22 @@ export const copyFilesToFolder = async (
         supportsAllDrives: true,
       });
       success++;
-    } catch {
+    } catch (error: any) {
       failed++;
       failedFileIds.push(fileId);
+      const status = Number(error?.response?.status || error?.code) || undefined;
+      const reason = error?.response?.data?.error?.errors?.[0]?.reason
+        || error?.errors?.[0]?.reason
+        || error?.response?.data?.error?.status;
+      const message = error?.response?.data?.error?.message || error?.message;
+      const detail = [status ? `HTTP ${status}` : '', reason, message]
+        .filter((part): part is string => typeof part === 'string' && part.length > 0)
+        .join(' — ')
+        .slice(0, 300);
+      failureReasons.push(detail || 'Google Drive rejected the copy request.');
+      console.error(`Google Drive copy failed for file ${fileId}: ${detail || 'unknown error'}`);
     }
   }
 
-  return { success, skipped, failed, failedFileIds };
+  return { success, skipped, failed, failedFileIds, failureReasons };
 };

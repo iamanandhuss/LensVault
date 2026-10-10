@@ -361,7 +361,9 @@ export const syncFavoritesToDrive = async (req: AuthRequest, res: Response): Pro
         favoritesSyncCopied: result.success,
         favoritesSyncSkipped: result.skipped,
         favoritesSyncFailed: result.failed,
-        favoritesSyncError: result.failed ? 'Check that each source photo can be copied and that the destination folder is writable.' : '',
+        favoritesSyncError: result.failed
+          ? result.failureReasons.slice(0, 2).join(' | ') || 'Google Drive rejected one or more copy requests.'
+          : '',
         favoritesSyncedAt: new Date(),
       } });
     }).catch(async error => {
