@@ -1,31 +1,44 @@
 import { Request, Response } from 'express';
 import { google } from 'googleapis';
+import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { AuthRequest } from '../middleware/authMiddleware';
 import { User } from '../models/User';
 import { Gallery } from '../models/Gallery';
 import { Photo } from '../models/Photo';
 import { Favorite } from '../models/Favorite';
 import { getAllImagesInFolder, copyFilesToFolder } from '../services/googleDriveService';
-import fs from 'fs';
-import path from 'path';
+import { getJwtSecret } from '../utils/auth';
 
-const oauth2Client = new google.auth.OAuth2(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
-  process.env.GOOGLE_REDIRECT_URI
-);
+const createOAuthClient = () => {
+  const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI } = process.env;
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REDIRECT_URI) {
+    throw new Error('Google Drive OAuth is not configured.');
+  }
+  return new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI);
+};
 
 const SCOPES = ['https://www.googleapis.com/auth/drive'];
 
 export const getAuthUrl = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const oauth2Client = createOAuthClient();
+    const state = jwt.sign({ sub: req.user._id.toString(), nonce: crypto.randomBytes(24).toString('hex') }, getJwtSecret(), {
+      expiresIn: '10m', issuer: 'photographer-saas', audience: 'google-oauth',
+    });
+    res.cookie('google_oauth_state', state, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/api/integrations/google/callback',
+      maxAge: 10 * 60 * 1000,
+    });
     const url = oauth2Client.generateAuthUrl({
       access_type: 'offline',
       scope: SCOPES,
       prompt: 'consent',
-      state: req.user._id.toString(), // Pass user ID through state
+      state,
     });
-    console.log('Generated Auth URL with SCOPES:', SCOPES, '\nURL:', url);
     res.status(200).json({ url });
   } catch (error) {
     res.status(500).json({ error: 'Failed to generate auth url' });
@@ -34,27 +47,37 @@ export const getAuthUrl = async (req: AuthRequest, res: Response): Promise<void>
 
 export const oauthCallback = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { code, state } = req.query;
-    if (!code || !state) {
+    const { code, state, error: oauthError } = req.query;
+    const savedState = req.cookies?.google_oauth_state;
+    res.clearCookie('google_oauth_state', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/api/integrations/google/callback' });
+    if (oauthError || !code || typeof code !== 'string' || typeof state !== 'string' || !savedState || state !== savedState) {
       res.status(400).send('Invalid request');
       return;
     }
 
+    const stateClaims = jwt.verify(state, getJwtSecret(), { issuer: 'photographer-saas', audience: 'google-oauth' }) as jwt.JwtPayload;
+    if (typeof stateClaims.sub !== 'string' || typeof stateClaims.nonce !== 'string') {
+      res.status(400).send('Invalid OAuth state');
+      return;
+    }
+    const oauth2Client = createOAuthClient();
     const { tokens } = await oauth2Client.getToken(code as string);
-    
-    // Save tokens to user
-    await User.findByIdAndUpdate(state as string, {
-      googleDriveTokens: {
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
-        expiry_date: tokens.expiry_date,
-      }
-    });
+    const user = await User.findById(stateClaims.sub);
+    if (!user || !tokens.access_token) {
+      res.status(400).send('Unable to connect this Google account');
+      return;
+    }
+    user.googleDriveTokens = {
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token || user.googleDriveTokens?.refresh_token || '',
+      expiry_date: tokens.expiry_date || 0,
+    };
+    await user.save();
 
-    res.redirect(`${process.env.FRONTEND_URL}/dashboard/galleries`);
+    res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/dashboard/galleries`);
   } catch (error) {
-    console.error(error);
-    res.redirect(`${process.env.FRONTEND_URL}/dashboard?error=oauth_failed`);
+    console.error('Google OAuth callback failed.');
+    res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/dashboard?error=oauth_failed`);
   }
 };
 
@@ -66,6 +89,7 @@ export const listDriveFolders = async (req: AuthRequest, res: Response): Promise
       return;
     }
 
+    const oauth2Client = createOAuthClient();
     oauth2Client.setCredentials(user.googleDriveTokens);
 
     const drive = google.drive({ version: 'v3', auth: oauth2Client });
@@ -78,7 +102,7 @@ export const listDriveFolders = async (req: AuthRequest, res: Response): Promise
 
     res.status(200).json(response.data.files);
   } catch (error) {
-    console.error(error);
+    console.error('Google Drive folder listing failed.');
     res.status(500).json({ error: 'Failed to fetch folders' });
   }
 };
@@ -104,12 +128,16 @@ export const getGallerySyncStatus = async (req: AuthRequest, res: Response): Pro
 
 export const syncGallery = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { googleDriveFolderId, galleryId } = req.body;
+    const { galleryId } = req.body || {};
     const user = await User.findById(req.user._id);
     const gallery = await Gallery.findOne({ _id: galleryId, photographerId: req.user._id });
 
     if (!gallery) {
       res.status(404).json({ error: 'Gallery not found' });
+      return;
+    }
+    if (!user?.googleDriveTokens?.access_token) {
+      res.status(400).json({ error: 'Google Drive not connected.' });
       return;
     }
 
@@ -118,71 +146,44 @@ export const syncGallery = async (req: AuthRequest, res: Response): Promise<void
       return;
     }
 
-    // Mark gallery as syncing
-    await Gallery.findByIdAndUpdate(galleryId, { syncStatus: 'syncing' });
+    const claimedGallery = await Gallery.findOneAndUpdate(
+      { _id: galleryId, photographerId: req.user._id, syncStatus: { $ne: 'syncing' } },
+      { $set: { syncStatus: 'syncing' } },
+      { new: true },
+    );
+    if (!claimedGallery) {
+      res.status(409).json({ error: 'Synchronization already in progress.' });
+      return;
+    }
     
     // Return immediately to the client
     res.status(200).json({ status: 'started', message: 'Synchronization started in background.' });
 
     // Kick off background job (floating promise)
-    runGallerySyncBackground(user, galleryId, googleDriveFolderId).catch(async (err) => {
-      console.error(`Background sync failed for gallery ${galleryId}:`, err);
+    runGallerySyncBackground(user, galleryId, claimedGallery.googleDriveFolderId).catch(async (err) => {
+      console.error(`Background sync failed for gallery ${galleryId}:`, err instanceof Error ? err.message : 'Unknown error');
       await Gallery.findByIdAndUpdate(galleryId, { syncStatus: 'error' });
     });
 
   } catch (error) {
-    console.error(error);
+    console.error('Google Drive sync request failed.');
     res.status(500).json({ error: 'Failed to start sync' });
   }
 };
 
 const runGallerySyncBackground = async (user: any, galleryId: string, folderId: string) => {
   try {
-    // 1. Gather all files from Drive
-    let driveFiles: any[] = [];
-    
-    // Check for demo mode / missing tokens
-    if (!user || !user.googleDriveTokens?.access_token || process.env.GOOGLE_CLIENT_ID === 'dummy_id') {
-      console.log(`Using Local Files Mode for Gallery Sync ${galleryId}`);
-      const imagesDir = path.join(__dirname, '../../../frontend/public/gallery_images');
-      if (fs.existsSync(imagesDir)) {
-        const files = fs.readdirSync(imagesDir);
-        let idCounter = 1;
-        for (const file of files) {
-          if (file.match(/\.(jpg|jpeg|png|webp|gif)$/i)) {
-            driveFiles.push({
-              id: `local-${idCounter++}`,
-              name: file,
-              mimeType: 'image/jpeg',
-              thumbnailLink: `/gallery_images/${file}`,
-              webContentLink: `/gallery_images/${file}`,
-              md5Checksum: 'local-hash'
-            });
-          }
-        }
-      }
-      
-      // Fallback to Unsplash
-      if (driveFiles.length === 0) {
-        driveFiles = [
-          { id: 'demo-1', name: 'wedding_1.jpg', mimeType: 'image/jpeg', thumbnailLink: 'https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&q=80&w=800', webContentLink: 'https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&q=80&w=800' },
-          { id: 'demo-2', name: 'wedding_2.jpg', mimeType: 'image/jpeg', thumbnailLink: 'https://images.unsplash.com/photo-1511285560929-80b456fea0bc?auto=format&fit=crop&q=80&w=800', webContentLink: 'https://images.unsplash.com/photo-1511285560929-80b456fea0bc?auto=format&fit=crop&q=80&w=800' },
-        ];
-      }
-    } else {
-      // Real API Mode
-      oauth2Client.setCredentials(user.googleDriveTokens);
-      const drive = google.drive({ version: 'v3', auth: oauth2Client });
-      
-      // Extract the actual ID if the user pasted a full URL
-      let parsedFolderId = folderId;
-      const match = folderId.match(/[-\w]{25,}/);
-      if (match) {
-        parsedFolderId = match[0];
-      }
+    if (!user?.googleDriveTokens?.access_token || !folderId) throw new Error('Google Drive credentials or folder are missing.');
+    const oauth2Client = createOAuthClient();
+    oauth2Client.setCredentials(user.googleDriveTokens);
+    const drive = google.drive({ version: 'v3', auth: oauth2Client });
+    const match = folderId.match(/[-\w]{25,}/);
+    const parsedFolderId = match?.[0] || folderId;
+    const driveFiles = await getAllImagesInFolder(drive, parsedFolderId, true);
 
-      // Call our new recursive service
-      driveFiles = await getAllImagesInFolder(drive, parsedFolderId, true);
+    const owner = await User.findById(user._id).select('subscription.plan');
+    if ((owner?.subscription?.plan || 'FREE') === 'FREE' && driveFiles.length > 500) {
+      throw new Error('The free plan supports up to 500 photos per gallery.');
     }
 
     // 2. Fetch existing photos from DB to compare
@@ -205,7 +206,7 @@ const runGallerySyncBackground = async (user: any, galleryId: string, folderId: 
             update: {
               $set: {
                 fileName: df.name,
-                thumbnailUrl: df.thumbnailLink || df.webContentLink,
+                thumbnailUrl: df.thumbnailLink || df.webContentLink || `https://drive.google.com/thumbnail?id=${encodeURIComponent(df.id)}&sz=w1200`,
                 fullResUrl: df.webContentLink,
                 mimeType: df.mimeType,
                 status: 'active',
@@ -311,6 +312,7 @@ export const syncFavoritesToDrive = async (req: AuthRequest, res: Response): Pro
     res.status(200).json({ status: 'started', message: `Started copying ${fileIdsToCopy.length} photos in the background.` });
 
     // Floating Promise for background copy
+    const oauth2Client = createOAuthClient();
     oauth2Client.setCredentials(user.googleDriveTokens);
     const drive = google.drive({ version: 'v3', auth: oauth2Client });
     

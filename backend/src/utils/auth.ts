@@ -1,7 +1,13 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_jwt_key_for_dev_only';
+export const getJwtSecret = (): string => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new Error('JWT_SECRET must be configured with at least 32 characters.');
+  }
+  return secret;
+};
 
 export const hashPassword = async (password: string): Promise<string> => {
   const salt = await bcrypt.genSalt(10);
@@ -13,12 +19,12 @@ export const verifyPassword = async (password: string, hash: string): Promise<bo
 };
 
 export const generateToken = (userId: string): string => {
-  return jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: '7d' });
+  return jwt.sign({ userId }, getJwtSecret(), { expiresIn: '7d' });
 };
 
 export const verifyToken = (token: string): any => {
   try {
-    return jwt.verify(token, JWT_SECRET);
+    return jwt.verify(token, getJwtSecret());
   } catch (error) {
     return null;
   }

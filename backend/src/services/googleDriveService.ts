@@ -40,7 +40,7 @@ export const getAllImagesInFolder = async (
     do {
       try {
         const response = await drive.files.list({
-          q: `'${currentFolderId}' in parents and trashed=false`,
+          q: `'${currentFolderId.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}' in parents and trashed=false`,
           fields: 'nextPageToken, files(id, name, mimeType, thumbnailLink, webContentLink, md5Checksum)',
           pageSize: 100, // Fetch in batches
           pageToken: pageToken,
@@ -76,7 +76,7 @@ export const getAllImagesInFolder = async (
   // Deduplicate files by id
   const uniqueFilesMap = new Map<string, DriveFile>();
   for (const file of allFiles) {
-    uniqueFilesMap.set(file.id, file);
+    if (!uniqueFilesMap.has(file.id)) uniqueFilesMap.set(file.id, file);
   }
 
   return Array.from(uniqueFilesMap.values());

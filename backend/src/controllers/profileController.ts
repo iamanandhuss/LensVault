@@ -4,13 +4,6 @@ import { Profile } from '../models/Profile';
 import { User } from '../models/User';
 import { v2 as cloudinary } from 'cloudinary';
 
-// Configure Cloudinary
-cloudinary.config({ 
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME, 
-  api_key: process.env.CLOUDINARY_API_KEY, 
-  api_secret: process.env.CLOUDINARY_API_SECRET 
-});
-
 export const getProfile = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     let profile = await Profile.findOne({ userId: req.user._id });
@@ -49,14 +42,21 @@ export const updateProfile = async (req: AuthRequest, res: Response): Promise<vo
     }
 
     // Only update allowed fields
-    if (displayName) profile.displayName = displayName;
-    if (businessName) profile.businessName = businessName;
-    if (bio) profile.bio = bio;
-    if (phone) profile.phone = phone;
-    if (website) profile.website = website;
+    if (displayName !== undefined) profile.displayName = displayName;
+    if (businessName !== undefined) profile.businessName = businessName;
+    if (bio !== undefined) profile.bio = bio;
+    if (phone !== undefined) profile.phone = phone;
+    if (website !== undefined) profile.website = website;
     if (location) profile.location = { ...profile.location, ...location };
     if (socialLinks) profile.socialLinks = { ...profile.socialLinks, ...socialLinks };
-    if (branding) profile.branding = { ...profile.branding, ...branding };
+    if (branding) {
+      const allowedColor = /^#[0-9a-f]{6}$/i;
+      if ([branding.primaryColor, branding.accentColor].some(color => color !== undefined && (typeof color !== 'string' || !allowedColor.test(color)))) {
+        res.status(400).json({ error: 'Brand colors must be six-digit hexadecimal values.' });
+        return;
+      }
+      profile.branding = { ...profile.branding, ...branding };
+    }
 
     await profile.save();
     res.status(200).json({ message: 'Profile updated successfully', profile });
@@ -70,7 +70,7 @@ export const uploadProfileImage = async (req: AuthRequest, res: Response): Promi
   try {
     const { imageBase64, type } = req.body; // type = 'profile' or 'logo'
 
-    if (!imageBase64 || !type) {
+    if (typeof imageBase64 !== 'string' || !['profile', 'logo'].includes(type)) {
       res.status(400).json({ error: 'Image and type are required' });
       return;
     }
@@ -79,6 +79,17 @@ export const uploadProfileImage = async (req: AuthRequest, res: Response): Promi
        res.status(500).json({ error: 'Cloudinary is not configured on the server. Please add API keys to .env' });
        return;
     }
+
+    const dataUri = imageBase64.match(/^data:image\/(png|jpeg|webp|gif);base64,([A-Za-z0-9+/=]+)$/i);
+    if (!dataUri || Buffer.from(dataUri[2], 'base64').length > 2 * 1024 * 1024) {
+      res.status(400).json({ error: 'Upload a valid image no larger than 2MB.' });
+      return;
+    }
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET,
+    });
 
     // Upload to cloudinary
     const uploadResponse = await cloudinary.uploader.upload(imageBase64, {

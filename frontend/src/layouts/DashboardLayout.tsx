@@ -31,23 +31,32 @@ const DashboardLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [profile, setProfile] = useState<any>(null);
+  const [plan, setPlan] = useState('FREE');
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+        const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:5000' : '');
         const response = await axios.get(`${API_URL}/api/profile`, { withCredentials: true });
-        setProfile(response.data);
-      } catch (err) {
-        // Handle silently, user might not have a profile yet
+        setProfile(response.data.profile);
+        setPlan(response.data.user?.subscription?.plan || 'FREE');
+      } catch {
+        navigate('/login', { replace: true });
+      } finally {
+        setIsCheckingAuth(false);
       }
     };
     fetchProfile();
-  }, []);
+  }, [navigate]);
+
+  if (isCheckingAuth) {
+    return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Checking your session…</div>;
+  }
 
   const handleLogout = async () => {
     try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:5000' : '');
       await axios.post(`${API_URL}/api/auth/logout`, {}, { withCredentials: true });
       navigate('/login');
     } catch (error) {
@@ -63,7 +72,7 @@ const DashboardLayout = () => {
   ];
 
   const primaryColorHex = profile?.branding?.primaryColor;
-  const customPrimaryHsl = primaryColorHex ? hexToHSL(primaryColorHex) : null;
+  const customPrimaryHsl = typeof primaryColorHex === 'string' && /^#[0-9a-f]{6}$/i.test(primaryColorHex) ? hexToHSL(primaryColorHex) : null;
 
   return (
     <div className="flex h-screen bg-background text-foreground relative overflow-hidden">
@@ -130,7 +139,7 @@ const DashboardLayout = () => {
       <main className="flex-1 flex flex-col h-screen overflow-hidden relative z-10">
         <header className="h-20 bg-card/40 backdrop-blur-xl border-b border-border/50 flex items-center justify-end px-8 shrink-0">
           <div className="flex items-center gap-4">
-            <div className="text-sm font-medium text-muted-foreground px-3 py-1 bg-secondary/50 rounded-full border border-border/50">Pro Plan</div>
+            <div className="text-sm font-medium text-muted-foreground px-3 py-1 bg-secondary/50 rounded-full border border-border/50">{plan} Plan</div>
             <div className="h-10 w-10 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center text-primary font-bold shadow-lg shadow-primary/10 cursor-pointer hover:scale-105 transition-transform overflow-hidden">
               {profile?.profileImage ? (
                 <img src={profile.profileImage} alt="Profile" className="h-full w-full object-cover" />

@@ -18,7 +18,7 @@ const RegisterPage = () => {
     setError('');
     
     try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:5000' : '');
       const response = await axios.post(`${API_URL}/api/auth/register`, { 
         name, 
         email, 
@@ -95,7 +95,7 @@ const RegisterPage = () => {
               className="w-full h-10 px-3 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" 
               placeholder="••••••••"
               required
-              minLength={6}
+              minLength={8}
             />
           </div>
           

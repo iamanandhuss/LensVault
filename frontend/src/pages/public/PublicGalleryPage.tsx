@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { Heart, Loader2, Lock, Image as ImageIcon, X, ChevronLeft, ChevronRight, Maximize2, MapPin, Globe } from 'lucide-react';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:5000' : '');
 
 interface Photo {
   _id: string;
@@ -16,7 +16,7 @@ const PublicGalleryPage = () => {
   const { slug } = useParams<{ slug: string }>();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [secretKey, setSecretKey] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(() => Boolean(slug && localStorage.getItem(`gallery_token_${slug}`)));
   const [error, setError] = useState('');
   
   const [galleryName, setGalleryName] = useState('');
@@ -49,34 +49,18 @@ const PublicGalleryPage = () => {
     if (node) observer.current.observe(node);
   }, [loadingMore, hasMore]);
 
-  useEffect(() => {
-    const savedToken = localStorage.getItem(`gallery_token_${slug}`);
-    if (savedToken) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${savedToken}`;
-      fetchInitialGalleryData(savedToken);
-    } else {
-      handleAutoUnlock();
-    }
-  }, [slug]);
-
-  useEffect(() => {
-    if (page > 1 && isAuthenticated && hasMore) {
-      fetchMorePhotos();
-    }
-  }, [page, isAuthenticated, hasMore]);
-
-  const handleAutoUnlock = async () => {
+  const handleAutoUnlock = async (event: React.FormEvent) => {
+    event.preventDefault();
     try {
       setLoading(true);
+      setError('');
       const response = await axios.post(`${API_URL}/api/public/access`, {
         slug,
-        secretKey: 'not-needed' // Password check bypassed on backend
+        secretKey
       });
 
       const token = response.data.galleryToken;
       localStorage.setItem(`gallery_token_${slug}`, token);
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      
       await fetchInitialGalleryData(token);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to access gallery');
@@ -84,9 +68,10 @@ const PublicGalleryPage = () => {
     }
   };
 
-  const fetchInitialGalleryData = async (token: string) => {
+  const fetchInitialGalleryData = useCallback(async (token: string) => {
     try {
-      const response = await axios.get(`${API_URL}/api/public/gallery/${slug}?page=1&limit=60`);
+      const auth = { headers: { Authorization: `Bearer ${token}` } };
+      const response = await axios.get(`${API_URL}/api/public/gallery/${slug}?page=1&limit=60`, auth);
       setGalleryName(response.data.gallery.name);
       setGalleryId(response.data.gallery.id);
       setFavoritesDownloadLink(response.data.gallery.favoritesDownloadLink || '');
@@ -95,24 +80,25 @@ const PublicGalleryPage = () => {
       setPhotographerProfile(response.data.photographerProfile);
       setIsAuthenticated(true);
       
-      const favResponse = await axios.get(`${API_URL}/api/favorites/${response.data.gallery.id}`, {
-        withCredentials: true 
-      });
+      const favResponse = await axios.get(`${API_URL}/api/favorites/${response.data.gallery.id}`, auth);
       setFavoriteIds(new Set(favResponse.data.favoritePhotoIds));
 
-    } catch (err) {
-      console.error(err);
+    } catch {
       localStorage.removeItem(`gallery_token_${slug}`);
       setIsAuthenticated(false);
+      setError('This gallery session expired. Enter the gallery key again.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [slug]);
 
-  const fetchMorePhotos = async () => {
+  const fetchMorePhotos = useCallback(async () => {
     try {
       setLoadingMore(true);
-      const response = await axios.get(`${API_URL}/api/public/gallery/${slug}?page=${page}&limit=60`);
+      const token = localStorage.getItem(`gallery_token_${slug}`);
+      const response = await axios.get(`${API_URL}/api/public/gallery/${slug}?page=${page}&limit=60`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       setPhotos(prev => [...prev, ...response.data.photos]);
       setHasMore(response.data.pagination.hasMore);
     } catch (err) {
@@ -120,14 +106,23 @@ const PublicGalleryPage = () => {
     } finally {
       setLoadingMore(false);
     }
-  };
+  }, [page, slug]);
+
+  useEffect(() => {
+    const savedToken = localStorage.getItem(`gallery_token_${slug}`);
+    if (savedToken) void fetchInitialGalleryData(savedToken);
+  }, [slug, fetchInitialGalleryData]);
+
+  useEffect(() => {
+    if (page > 1 && isAuthenticated && hasMore) void fetchMorePhotos();
+  }, [page, isAuthenticated, hasMore, fetchMorePhotos]);
 
   const toggleFavorite = async (photoId: string) => {
     try {
       const response = await axios.post(`${API_URL}/api/favorites/toggle`, {
         galleryId,
         photoId
-      }, { withCredentials: true });
+      }, { headers: { Authorization: `Bearer ${localStorage.getItem(`gallery_token_${slug}`)}` } });
 
       setFavoriteIds(prev => {
         const next = new Set(prev);
@@ -138,17 +133,30 @@ const PublicGalleryPage = () => {
         }
         return next;
       });
-    } catch (err) {
+    } catch {
       alert('Failed to save favorite.');
     }
   };
 
-  if (loading || !isAuthenticated) {
+  if (loading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-zinc-950">
         <Loader2 className="h-8 w-8 animate-spin text-zinc-400 mb-4" />
-        {error && <p className="text-red-400 text-sm mt-4">{error}</p>}
       </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-zinc-950 p-4 text-white">
+        <form onSubmit={handleAutoUnlock} className="w-full max-w-sm space-y-4 rounded-2xl border border-white/10 bg-white/5 p-8">
+          <div className="flex items-center gap-3"><Lock className="h-5 w-5" /><h1 className="text-xl font-semibold">Private gallery</h1></div>
+          <label htmlFor="gallery-key" className="block text-sm text-zinc-300">Enter the gallery key provided by your photographer</label>
+          <input id="gallery-key" value={secretKey} onChange={event => setSecretKey(event.target.value)} autoComplete="one-time-code" required className="w-full rounded-lg border border-white/15 bg-black/30 px-3 py-2 font-mono tracking-wider" />
+          {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
+          <button disabled={loading} className="w-full rounded-lg bg-primary px-4 py-2 font-medium text-primary-foreground disabled:opacity-60">{loading ? 'Unlocking…' : 'Unlock gallery'}</button>
+        </form>
+      </main>
     );
   }
 
@@ -156,7 +164,8 @@ const PublicGalleryPage = () => {
     ? photos.filter(photo => favoriteIds.has(photo._id)) 
     : photos;
 
-  const brandColor = photographerProfile?.branding?.primaryColor || '#D4AF37';
+  const savedBrandColor = photographerProfile?.branding?.primaryColor;
+  const brandColor = typeof savedBrandColor === 'string' && /^#[0-9a-f]{6}$/i.test(savedBrandColor) ? savedBrandColor : '#D4AF37';
 
   return (
     <div className="min-h-screen bg-background text-foreground font-sans relative">

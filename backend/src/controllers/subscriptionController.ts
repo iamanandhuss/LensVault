@@ -12,29 +12,5 @@ export const getSubscriptionStatus = async (req: AuthRequest, res: Response): Pr
 };
 
 export const upgradeSubscription = async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    const { plan } = req.body;
-    
-    // In a real production app, this is where we'd verify a Stripe/Razorpay Webhook signature
-    // or create a Checkout Session. For the MVP, we will simulate a successful upgrade.
-
-    const validPlans = ['FREE', 'STARTER', 'PRO', 'STUDIO'];
-    if (!validPlans.includes(plan)) {
-      res.status(400).json({ error: 'Invalid subscription plan.' });
-      return;
-    }
-
-    const updatedUser = await User.findByIdAndUpdate(
-      req.user._id, 
-      { 'subscription.plan': plan },
-      { new: true }
-    );
-
-    res.status(200).json({ 
-      message: `Successfully upgraded to ${plan}`,
-      plan: updatedUser?.subscription?.plan 
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to upgrade subscription' });
-  }
+  res.status(503).json({ error: 'Paid subscriptions are not available until a payment provider is configured.' });
 };

@@ -4,10 +4,12 @@ import crypto from 'crypto';
 import { AuthRequest } from '../middleware/authMiddleware';
 import { Gallery } from '../models/Gallery';
 import { Client } from '../models/Client';
+import { User } from '../models/User';
 
 export const getGalleries = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const galleries = await Gallery.find({ photographerId: req.user._id })
+      .select('-secretKeyHash')
       .populate('clientId', 'name email')
       .sort({ createdAt: -1 });
     res.status(200).json(galleries);
@@ -18,9 +20,9 @@ export const getGalleries = async (req: AuthRequest, res: Response): Promise<voi
 
 export const createGallery = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { name, clientId, googleDriveFolderId } = req.body;
+    const { name, clientId, googleDriveFolderId } = req.body || {};
 
-    if (!name || !clientId || !googleDriveFolderId) {
+    if (typeof name !== 'string' || !name.trim() || name.length > 120 || typeof clientId !== 'string' || typeof googleDriveFolderId !== 'string' || !googleDriveFolderId.trim()) {
       res.status(400).json({ error: 'Name, client, and drive folder are required.' });
       return;
     }
@@ -32,12 +34,20 @@ export const createGallery = async (req: AuthRequest, res: Response): Promise<vo
       return;
     }
 
+    const user = await User.findById(req.user._id).select('subscription.plan');
+    const activeGalleryCount = await Gallery.countDocuments({ photographerId: req.user._id, isActive: true });
+    if ((user?.subscription?.plan || 'FREE') === 'FREE' && activeGalleryCount >= 10) {
+      res.status(403).json({ error: 'The free plan includes up to 10 active galleries.' });
+      return;
+    }
+
     // Generate a unique slug for the public URL
-    const slug = `${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${crypto.randomBytes(3).toString('hex')}`;
+    const slugBase = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'gallery';
+    const slug = `${slugBase}-${crypto.randomBytes(3).toString('hex')}`;
 
     // Generate a secure, readable secret key (e.g., A7F9-K2P4)
-    const rawSecretKey = crypto.randomBytes(4).toString('hex').toUpperCase();
-    const formattedSecretKey = `${rawSecretKey.slice(0, 4)}-${rawSecretKey.slice(4)}`;
+    const rawSecretKey = crypto.randomBytes(8).toString('hex').toUpperCase();
+    const formattedSecretKey = rawSecretKey.match(/.{1,4}/g)!.join('-');
 
     // Hash the secret key for secure storage
     const salt = await bcrypt.genSalt(10);
@@ -46,7 +56,7 @@ export const createGallery = async (req: AuthRequest, res: Response): Promise<vo
     const newGallery = new Gallery({
       photographerId: req.user._id,
       clientId,
-      name,
+      name: name.trim(),
       slug,
       secretKeyHash,
       googleDriveFolderId,
@@ -55,7 +65,7 @@ export const createGallery = async (req: AuthRequest, res: Response): Promise<vo
     await newGallery.save();
 
     res.status(201).json({
-      gallery: newGallery,
+      gallery: { _id: newGallery._id, name: newGallery.name, slug: newGallery.slug, clientId: newGallery.clientId },
       rawSecretKey: formattedSecretKey, // Only sent once!
     });
   } catch (error) {
@@ -76,8 +86,11 @@ export const deleteGallery = async (req: AuthRequest, res: Response): Promise<vo
     }
     
     // Delete all associated photos
-    const { Photo } = await import('../models/Photo');
-    await Photo.deleteMany({ galleryId: id });
+    const [{ Photo }, { Favorite }] = await Promise.all([
+      import('../models/Photo'),
+      import('../models/Favorite'),
+    ]);
+    await Promise.all([Photo.deleteMany({ galleryId: id }), Favorite.deleteMany({ galleryId: id })]);
     
     // Delete the gallery itself
     await Gallery.findByIdAndDelete(id);

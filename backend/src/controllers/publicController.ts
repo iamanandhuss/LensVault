@@ -1,11 +1,11 @@
 import { Request, Response } from 'express';
+import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { Gallery } from '../models/Gallery';
 import { Photo } from '../models/Photo';
 import { Favorite } from '../models/Favorite';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_jwt_key_for_dev_only';
+import { getJwtSecret } from '../utils/auth';
 
 // 1. Verify Secret Key and unlock gallery
 export const accessGallery = async (req: Request, res: Response): Promise<void> => {
@@ -23,12 +23,18 @@ export const accessGallery = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
+    const validSecret = await bcrypt.compare(String(secretKey).trim().toUpperCase(), gallery.secretKeyHash);
+    if (!validSecret) {
+      res.status(401).json({ error: 'Invalid gallery key.' });
+      return;
+    }
+
     // Generate a guest token scoped to this specific gallery
     // We use this token so the client doesn't have to keep entering the password
     const guestToken = jwt.sign(
-      { galleryId: gallery._id, role: 'guest' }, 
-      JWT_SECRET, 
-      { expiresIn: '30d' }
+      { galleryId: gallery._id.toString(), role: 'guest', nonce: crypto.randomUUID() },
+      getJwtSecret(),
+      { expiresIn: '30d', issuer: 'photographer-saas', audience: 'gallery' }
     );
 
     res.status(200).json({
@@ -49,8 +55,12 @@ export const accessGallery = async (req: Request, res: Response): Promise<void> 
 export const getGalleryData = async (req: Request, res: Response): Promise<void> => {
   try {
     const { slug } = req.params;
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 60;
+    const page = Number(req.query.page ?? 1);
+    const limit = Number(req.query.limit ?? 60);
+    if (!Number.isInteger(page) || page < 1 || !Number.isInteger(limit) || limit < 1 || limit > 100) {
+      res.status(400).json({ error: 'Page must be positive and limit must be between 1 and 100.' });
+      return;
+    }
     const skip = (page - 1) * limit;
 
     const authHeader = req.headers.authorization;
@@ -63,13 +73,17 @@ export const getGalleryData = async (req: Request, res: Response): Promise<void>
     const token = authHeader.split(' ')[1];
     let decoded: any;
     try {
-      decoded = jwt.verify(token, JWT_SECRET);
+      decoded = jwt.verify(token, getJwtSecret(), { issuer: 'photographer-saas', audience: 'gallery' });
     } catch (e) {
       res.status(401).json({ error: 'Invalid or expired gallery token' });
       return;
     }
 
-    const gallery = await Gallery.findOne({ slug, _id: decoded.galleryId });
+    if (decoded.role !== 'guest' || typeof decoded.galleryId !== 'string') {
+      res.status(401).json({ error: 'Invalid gallery token' });
+      return;
+    }
+    const gallery = await Gallery.findOne({ slug, _id: decoded.galleryId, isActive: true });
     if (!gallery) {
       res.status(404).json({ error: 'Gallery not found' });
       return;
@@ -83,6 +97,7 @@ export const getGalleryData = async (req: Request, res: Response): Promise<void>
     const filter: any = { galleryId: gallery._id, status: 'active' };
     
     const photos = await Photo.find(filter)
+      .select('-googleDriveFileId -checksum')
       .sort({ sortOrder: 1, createdAt: -1 })
       .skip(skip)
       .limit(limit);
@@ -91,9 +106,8 @@ export const getGalleryData = async (req: Request, res: Response): Promise<void>
     
     res.status(200).json({
       gallery: { 
-        id: gallery._id, 
+        id: gallery._id,
         name: gallery.name, 
-        photographerId: gallery.photographerId,
         favoritesDownloadLink: gallery.favoritesDownloadLink
       },
       photographerProfile,

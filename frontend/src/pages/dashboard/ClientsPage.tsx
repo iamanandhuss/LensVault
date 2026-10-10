@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { UserPlus, Mail, Phone, Loader2, Plus, X } from 'lucide-react';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:5000' : '');
 
 interface Client {
   _id: string;
@@ -26,7 +26,7 @@ const ClientsPage = () => {
   const [phone, setPhone] = useState('');
   const [notes, setNotes] = useState('');
 
-  const fetchClients = async () => {
+  const fetchClients = useCallback(async () => {
     try {
       const response = await axios.get(`${API_URL}/api/clients`, { withCredentials: true });
       setClients(response.data);
@@ -35,11 +35,11 @@ const ClientsPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchClients();
-  }, []);
+    void fetchClients();
+  }, [fetchClients]);
 
   const handleCreateClient = async (e: React.FormEvent) => {
     e.preventDefault();

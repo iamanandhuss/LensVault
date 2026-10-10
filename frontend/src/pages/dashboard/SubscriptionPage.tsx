@@ -1,6 +1,16 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import axios from 'axios';
+
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:5000' : '');
 
 const SubscriptionPage = () => {
+  const [plan, setPlan] = useState('FREE');
+  useEffect(() => {
+    axios.get(`${API_URL}/api/subscriptions/status`, { withCredentials: true })
+      .then(response => setPlan(response.data.plan || 'FREE'))
+      .catch(error => console.error('Failed to load subscription status', error));
+  }, []);
+
   return (
     <div className="max-w-4xl mx-auto">
       <div className="mb-8 text-center">
@@ -12,9 +22,9 @@ const SubscriptionPage = () => {
         {/* Starter Plan */}
         <div className="bg-card/40 backdrop-blur-xl rounded-3xl border border-border/50 shadow-xl p-8 relative flex flex-col hover:border-border transition-colors">
           <div className="absolute top-0 right-0 bg-secondary/80 backdrop-blur-md text-xs font-bold px-4 py-2 rounded-bl-xl rounded-tr-3xl border-b border-l border-border/50">
-            CURRENT PLAN
+            {plan === 'FREE' ? 'CURRENT PLAN' : ''}
           </div>
-          <h3 className="text-2xl font-bold text-foreground">Starter</h3>
+          <h3 className="text-2xl font-bold text-foreground">Free</h3>
           <div className="mt-6 flex items-baseline text-5xl font-extrabold text-foreground">
             ₹0
             <span className="ml-2 text-xl font-medium text-muted-foreground">/mo</span>
@@ -30,8 +40,8 @@ const SubscriptionPage = () => {
               <span className="mr-4 text-primary">✓</span> Basic Favorites
             </li>
           </ul>
-          <button className="mt-10 w-full bg-secondary/50 text-muted-foreground py-3.5 rounded-xl font-medium cursor-not-allowed border border-border/50">
-            Active Plan
+          <button disabled className="mt-10 w-full bg-secondary/50 text-muted-foreground py-3.5 rounded-xl font-medium cursor-not-allowed border border-border/50">
+            {plan === 'FREE' ? 'Active Plan' : 'Free plan'}
           </button>
         </div>
 
@@ -59,8 +69,8 @@ const SubscriptionPage = () => {
               <span className="mr-4 text-primary font-bold">✓</span> Custom branding
             </li>
           </ul>
-          <button className="mt-10 w-full bg-primary text-primary-foreground py-3.5 rounded-xl font-semibold hover:bg-primary/90 transition-all shadow-[0_4px_14px_0_hsl(var(--primary)/30%)] hover:-translate-y-0.5 hover:shadow-[0_6px_20px_rgba(212,175,55,0.23)]">
-            Upgrade to Pro
+          <button disabled className="mt-10 w-full bg-secondary/50 text-muted-foreground py-3.5 rounded-xl font-semibold cursor-not-allowed border border-border/50">
+            {plan === 'PRO' ? 'Current plan' : 'Paid plans coming soon'}
           </button>
         </div>
       </div>

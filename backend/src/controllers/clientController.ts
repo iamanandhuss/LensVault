@@ -13,9 +13,9 @@ export const getClients = async (req: AuthRequest, res: Response): Promise<void>
 
 export const createClient = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { name, email, phone, notes } = req.body;
+    const { name, email, phone, notes } = req.body || {};
 
-    if (!name || !email) {
+    if (typeof name !== 'string' || !name.trim() || name.length > 100 || typeof email !== 'string' || !/^\S+@\S+\.\S+$/.test(email.trim())) {
       res.status(400).json({ error: 'Name and email are required.' });
       return;
     }
@@ -28,7 +28,7 @@ export const createClient = async (req: AuthRequest, res: Response): Promise<voi
 
     const newClient = new Client({
       photographerId: req.user._id,
-      name,
+      name: name.trim(),
       email: email.toLowerCase(),
       phone,
       notes,
@@ -37,6 +37,10 @@ export const createClient = async (req: AuthRequest, res: Response): Promise<voi
     await newClient.save();
     res.status(201).json(newClient);
   } catch (error) {
+    if ((error as { code?: number }).code === 11000) {
+      res.status(409).json({ error: 'Client with this email already exists.' });
+      return;
+    }
     res.status(500).json({ error: 'Error creating client' });
   }
 };

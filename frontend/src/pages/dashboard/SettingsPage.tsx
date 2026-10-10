@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { User, HardDrive, Bell, Shield, Save, Camera, UploadCloud, Loader2 } from 'lucide-react';
+import { User, HardDrive, Bell, Shield, Save, Loader2 } from 'lucide-react';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:5000' : '');
 
 const SettingsPage = () => {
   const [activeTab, setActiveTab] = useState('profile');
@@ -23,10 +23,6 @@ const SettingsPage = () => {
     branding: { primaryColor: '#D4AF37', accentColor: '#ffffff' }
   });
 
-  useEffect(() => {
-    fetchProfile();
-  }, []);
-
   const fetchProfile = async () => {
     try {
       const res = await axios.get(`${API_URL}/api/profile`, { withCredentials: true });
@@ -46,6 +42,10 @@ const SettingsPage = () => {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    void fetchProfile();
+  }, []);
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -306,7 +306,7 @@ const SettingsPage = () => {
                       try {
                         const response = await axios.get(`${API_URL}/api/integrations/google/auth-url`, { withCredentials: true });
                         window.location.href = response.data.url;
-                      } catch (err) {
+                      } catch {
                         alert('Failed to get Google Auth URL. Make sure the backend is running and OAuth is configured.');
                       }
                     }}
@@ -340,8 +340,8 @@ const SettingsPage = () => {
                   <label className="text-sm font-medium text-muted-foreground">New Password</label>
                   <input type="password" placeholder="••••••••" className="w-full h-11 bg-background/50 border border-border/50 rounded-xl px-4 text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all" />
                 </div>
-                <button className="bg-secondary text-foreground px-4 py-2.5 rounded-xl text-sm font-medium border border-border/50 hover:bg-secondary/80 transition-colors mt-2">
-                  Update Password
+                <button disabled className="bg-secondary/50 text-muted-foreground px-4 py-2.5 rounded-xl text-sm font-medium border border-border/50 cursor-not-allowed mt-2">
+                  Password changes coming soon
                 </button>
               </div>
             </div>

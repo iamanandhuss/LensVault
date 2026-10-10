@@ -1,44 +1,55 @@
 import { Request, Response } from 'express';
-import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
 import { User } from '../models/User';
+import { Profile } from '../models/Profile';
+import { generateToken, verifyToken, hashPassword, verifyPassword } from '../utils/auth';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_jwt_key_for_dev_only';
+const authCookieOptions = () => ({
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: (process.env.NODE_ENV === 'production' ? 'none' : 'lax') as 'none' | 'lax',
+  path: '/',
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+});
 
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, businessName } = req.body || {};
+    const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+    const normalizedName = typeof name === 'string' ? name.trim() : '';
 
-    if (!name || !email || !password) {
+    if (!normalizedName || !normalizedEmail || typeof password !== 'string') {
       res.status(400).json({ error: 'All fields are required.' });
       return;
     }
+    if (normalizedName.length > 100 || normalizedEmail.length > 254 || !/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
+      res.status(400).json({ error: 'Enter a valid name and email address.' });
+      return;
+    }
+    if (password.length < 8 || password.length > 128) {
+      res.status(400).json({ error: 'Password must be between 8 and 128 characters.' });
+      return;
+    }
 
-    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
       res.status(409).json({ error: 'User already exists with this email.' });
       return;
     }
 
-    const salt = await bcrypt.genSalt(10);
-    const passwordHash = await bcrypt.hash(password, salt);
+    const passwordHash = await hashPassword(password);
 
     const user = new User({
-      name,
-      email: email.toLowerCase(),
+      name: normalizedName,
+      email: normalizedEmail,
       passwordHash,
     });
 
     await user.save();
+    if (typeof businessName === 'string' && businessName.trim()) {
+      await Profile.create({ userId: user._id, displayName: normalizedName, businessName: businessName.trim().slice(0, 120) });
+    }
 
-    const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '7d' });
-
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: true, // Must be true for cross-site cookies
-      sameSite: 'none', // Must be 'none' to allow frontend on Vercel to authenticate with Render backend
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
+    res.cookie('token', generateToken(user._id.toString()), authCookieOptions());
 
     res.status(201).json({
       message: 'User registered successfully',
@@ -59,31 +70,29 @@ export const login = async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password } = req.body;
 
-    if (!email || !password) {
+    if (typeof email !== 'string' || typeof password !== 'string' || !email.trim()) {
       res.status(400).json({ error: 'Email and password are required.' });
       return;
     }
 
-    const user = await User.findOne({ email: email.toLowerCase() });
+    const user = await User.findOne({ email: email.trim().toLowerCase() });
     if (!user) {
       res.status(401).json({ error: 'Invalid credentials.' });
       return;
     }
 
-    const isMatch = await bcrypt.compare(password, user.passwordHash);
+    const isMatch = await verifyPassword(password, user.passwordHash);
     if (!isMatch) {
       res.status(401).json({ error: 'Invalid credentials.' });
       return;
     }
 
-    const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '7d' });
+    if (user.status !== 'active') {
+      res.status(403).json({ error: 'This account is unavailable.' });
+      return;
+    }
 
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'none',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    res.cookie('token', generateToken(user._id.toString()), authCookieOptions());
 
     res.status(200).json({
       message: 'Logged in successfully',
@@ -102,12 +111,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
 export const logout = async (req: Request, res: Response): Promise<void> => {
   try {
-    res.cookie('token', '', {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'none',
-      expires: new Date(0),
-    });
+    res.clearCookie('token', authCookieOptions());
     res.status(200).json({ message: 'Logged out successfully' });
   } catch (error) {
     console.error('Logout error:', error);
@@ -124,10 +128,14 @@ export const checkAuth = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
+    const decoded = verifyToken(token) as { userId: string } | null;
+    if (!decoded?.userId) {
+      res.status(401).json({ isAuthenticated: false });
+      return;
+    }
     const user = await User.findById(decoded.userId).select('-passwordHash -googleDriveTokens');
 
-    if (!user) {
+    if (!user || user.status !== 'active') {
       res.status(401).json({ isAuthenticated: false });
       return;
     }

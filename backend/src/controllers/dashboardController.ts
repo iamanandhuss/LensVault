@@ -18,7 +18,7 @@ export const getDashboardStats = async (req: AuthRequest, res: Response): Promis
     const galleryIds = galleries.map(g => g._id);
 
     // 3. Total Photos
-    const totalPhotos = await Photo.countDocuments({ galleryId: { $in: galleryIds } });
+    const totalPhotos = await Photo.countDocuments({ galleryId: { $in: galleryIds }, status: 'active' });
 
     // 4. Total Favorites
     const totalFavorites = await Favorite.countDocuments({ galleryId: { $in: galleryIds } });
@@ -27,7 +27,7 @@ export const getDashboardStats = async (req: AuthRequest, res: Response): Promis
     const topGalleries = galleries.slice(0, 5);
     const recentGalleries = await Promise.all(
       topGalleries.map(async (gallery: any) => {
-        const photoCount = await Photo.countDocuments({ galleryId: gallery._id });
+        const photoCount = await Photo.countDocuments({ galleryId: gallery._id, status: 'active' });
         const favoriteCount = await Favorite.countDocuments({ galleryId: gallery._id });
         
         return {

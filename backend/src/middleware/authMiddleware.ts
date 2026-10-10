@@ -1,8 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
 import { User } from '../models/User';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_jwt_key_for_dev_only';
+import { verifyToken } from '../utils/auth';
 
 // Extend Express Request to include user
 export interface AuthRequest extends Request {
@@ -11,17 +9,22 @@ export interface AuthRequest extends Request {
 
 export const requireAuth = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const token = req.cookies.token;
+    const bearerToken = req.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
+    const token = req.cookies?.token || bearerToken;
 
     if (!token) {
       res.status(401).json({ error: 'Authentication required' });
       return;
     }
 
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
-    const user = await User.findById(decoded.userId).select('-passwordHash');
+    const decoded = verifyToken(token) as { userId?: string } | null;
+    if (!decoded?.userId) {
+      res.status(401).json({ error: 'Invalid or expired token' });
+      return;
+    }
+    const user = await User.findById(decoded.userId).select('-passwordHash -googleDriveTokens');
 
-    if (!user) {
+    if (!user || user.status !== 'active') {
       res.status(401).json({ error: 'User not found' });
       return;
     }

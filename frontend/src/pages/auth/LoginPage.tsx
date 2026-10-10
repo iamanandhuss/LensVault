@@ -17,7 +17,7 @@ const LoginPage = () => {
     
     try {
       // In production use an env variable for base URL
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:5000' : '');
       const response = await axios.post(`${API_URL}/api/auth/login`, { email, password }, { withCredentials: true });
       if (response.data) {
         navigate('/dashboard');
@@ -61,7 +61,7 @@ const LoginPage = () => {
           <div className="space-y-2">
             <div className="flex justify-between">
               <label className="text-sm font-medium">Password</label>
-              <a href="#" className="text-xs text-primary hover:underline">Forgot password?</a>
+              <span className="text-xs text-muted-foreground">Password reset coming soon</span>
             </div>
             <input 
               type="password" 

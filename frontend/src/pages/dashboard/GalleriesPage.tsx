@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { Image, Loader2, Plus, X, Folder, Copy, Check, RefreshCw, Trash2, AlertTriangle, UploadCloud } from 'lucide-react';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:5000' : '');
 
 interface Client {
   _id: string;
@@ -39,7 +39,6 @@ const GalleriesPage = () => {
 
   // Sync state
   const [syncingId, setSyncingId] = useState<string | null>(null);
-  const [syncingGalleries, setSyncingGalleries] = useState<Set<string>>(new Set());
   const [pushingFavorites, setPushingFavorites] = useState<Set<string>>(new Set());
   const [syncProgress, setSyncProgress] = useState<Record<string, number>>({});
 
@@ -47,7 +46,7 @@ const GalleriesPage = () => {
   const [deletingGallery, setDeletingGallery] = useState<Gallery | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       const [galleriesRes, clientsRes] = await Promise.all([
         axios.get(`${API_URL}/api/galleries`, { withCredentials: true }),
@@ -63,11 +62,11 @@ const GalleriesPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [clientId]);
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    void fetchData();
+  }, [fetchData]);
 
   const handleCreateGallery = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -208,7 +207,7 @@ const GalleriesPage = () => {
       await axios.put(`${API_URL}/api/galleries/${galleryId}`, { favoritesDownloadLink: link }, { withCredentials: true });
       alert('Download link saved!');
       fetchData();
-    } catch (err) {
+    } catch {
       alert('Failed to save download link');
     }
   };

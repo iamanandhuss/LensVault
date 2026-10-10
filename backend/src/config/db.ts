@@ -5,13 +5,13 @@ dotenv.config();
 
 const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(process.env.MONGODB_URI as string);
+    const uri = process.env.MONGODB_URI;
+    if (!uri) throw new Error('MONGODB_URI is required.');
+    const conn = await mongoose.connect(uri);
     console.log(`MongoDB Connected: ${conn.connection.host}`);
   } catch (error: any) {
-    console.error(`Error connecting to MongoDB: ${error.message}`);
-    // Do not exit process in production if we want to handle reconnections, 
-    // but for MVP this is standard.
-    process.exit(1); 
+    console.error('MongoDB connection failed:', error?.name || 'UnknownError', error?.code || '');
+    throw new Error('MongoDB connection failed.');
   }
 };
 

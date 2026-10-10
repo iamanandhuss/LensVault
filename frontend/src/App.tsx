@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useParams } from 'react-router-dom';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/auth/LoginPage';
 import RegisterPage from './pages/auth/RegisterPage';
@@ -10,6 +10,11 @@ import SubscriptionPage from './pages/dashboard/SubscriptionPage';
 import SettingsPage from './pages/dashboard/SettingsPage';
 import PublicGalleryPage from './pages/public/PublicGalleryPage';
 
+const KeyedPublicGallery = () => {
+  const { slug } = useParams();
+  return <PublicGalleryPage key={slug} />;
+};
+
 function App() {
   return (
     <Router>
@@ -20,7 +25,7 @@ function App() {
         <Route path="/register" element={<RegisterPage />} />
 
         {/* Client Gallery Route */}
-        <Route path="/gallery/:slug" element={<PublicGalleryPage />} />
+        <Route path="/gallery/:slug" element={<KeyedPublicGallery />} />
 
         {/* Protected Photographer Dashboard */}
         <Route path="/dashboard" element={<DashboardLayout />}>
